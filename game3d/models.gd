@@ -135,8 +135,16 @@ static func district_roof(d: int) -> Color:
 	return Board.DISTRICTS[d].color.darkened(0.35)
 
 
-## Builds the structure for a property at the given level (0 = empty lot).
+## Builds the structure for a property at the given level (0 = empty lot). Uses the Blender
+## kit model when one exists (art/models/d<district>_l<level>.glb, already at final size and
+## tagged "prescaled"); otherwise falls back to the procedural placeholder.
 static func building(d: int, level: int, seed: int) -> Node3D:
+	var path := "res://art/models/d%d_l%d.glb" % [d, level]
+	if level > 0 and ResourceLoader.exists(path):
+		var scene: PackedScene = load(path)
+		var inst: Node3D = scene.instantiate()
+		inst.set_meta("prescaled", true)
+		return inst
 	var root := Node3D.new()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed * 7919 + level

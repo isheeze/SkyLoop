@@ -4,7 +4,7 @@ extends Node3D
 
 const FONT = preload("res://art/fonts/Outfit.ttf")
 
-static var _chip: ImageTexture
+static var _chips := {}  # width in px -> texture
 
 var _sprite: Sprite3D
 var _label: Label3D
@@ -12,7 +12,7 @@ var _label: Label3D
 
 func _init() -> void:
 	_sprite = Sprite3D.new()
-	_sprite.texture = _chip_texture()
+	_sprite.texture = _chip_texture(140)
 	_sprite.pixel_size = 0.0034
 	_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_sprite.shaded = false
@@ -35,14 +35,16 @@ func _init() -> void:
 
 func show_text(text: String, fill: Color) -> void:
 	_label.text = text
+	# Widen the chip to fit the text, in 20 px steps so textures are shared.
+	var w := _label.font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, _label.font_size).x
+	_sprite.texture = _chip_texture(maxi(140, int(ceil((w + 44.0) / 20.0)) * 20))
 	_sprite.modulate = fill
 	_label.modulate = Color("1b2133") if fill.get_luminance() > 0.55 else Color.WHITE
 
 
-static func _chip_texture() -> ImageTexture:
-	if _chip != null:
-		return _chip
-	var w := 140
+static func _chip_texture(w: int) -> ImageTexture:
+	if _chips.has(w):
+		return _chips[w]
 	var h := 64
 	var r := 30.0
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
@@ -57,5 +59,5 @@ static func _chip_texture() -> ImageTexture:
 			# A thin darker rim keeps white chips readable on light tiles.
 			var c := Color(1, 1, 1).lerp(Color(0.75, 0.78, 0.85), 1.0 - edge)
 			img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
-	_chip = ImageTexture.create_from_image(img)
-	return _chip
+	_chips[w] = ImageTexture.create_from_image(img)
+	return _chips[w]

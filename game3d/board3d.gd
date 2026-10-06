@@ -21,6 +21,7 @@ var _token_tile: Array = []
 var _levels: Array = []
 var _owners: Array = []
 var _puffs: Array = []
+var _targets: Array = []  # [{tile, node}]
 var _time := 0.0
 
 
@@ -41,6 +42,7 @@ func setup(game, player_colors: Array) -> void:
 	_tokens.clear()
 	_token_tile.clear()
 	_puffs.clear()
+	_targets.clear()
 	_build_static()
 	for i in Board.TILE_COUNT:
 		_build_tile(i)
@@ -291,14 +293,15 @@ func _apply_tile(i: int, animate: bool) -> void:
 		var b: Node3D = Models.for_sale(d) if want == -1 else Models.building(d, want, i)
 		b.position = -inner * 0.13
 		b.rotation.y = atan2(inner.x, inner.z)
-		b.scale = Vector3.ONE * BUILDING_SCALE
+		var full := Vector3.ONE * (1.0 if b.has_meta("prescaled") else BUILDING_SCALE)
+		b.scale = full
 		e.root.add_child(b)
 		e.building = b
 		if animate:
-			b.scale = Vector3(BUILDING_SCALE, 0.01, BUILDING_SCALE)
+			b.scale = Vector3(full.x, 0.01, full.z)
 			var tw := create_tween()
 			tw.tween_interval(0.12)
-			tw.tween_property(b, "scale", Vector3.ONE * BUILDING_SCALE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_property(b, "scale", full, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 			if want > 0:
 				_puff(e.root.position + Vector3(0, 0.1, 0), Board.DISTRICTS[d].color)
 
@@ -405,3 +408,50 @@ func _puff(at: Vector3, color: Color) -> void:
 	add_child(p)
 	p.emitting = true
 	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
+
+# ---------------------------------------------------------------- move targets
+
+const TONE_COLORS := {"good": Color("3ddc97"), "bad": Color("ff5d73"), "neutral": Color("ffffff")}
+
+
+## Highlights the tiles a move can reach, each with a badge saying what happens there.
+## options: [{tile, text, tone, steps}]
+func show_targets(options: Array) -> void:
+	clear_targets()
+	for o: Dictionary in options:
+		var root := Node3D.new()
+		root.position = tile_center(o.tile)
+		add_child(root)
+		var c: Color = TONE_COLORS[o.tone]
+		var m := StandardMaterial3D.new()
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(c.r, c.g, c.b, 0.45)
+		var glow := Models.box(root, Vector3(0.97, 0.02, 0.97), Vector3(0, 0.03, 0), m)
+		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var tw := glow.create_tween().set_loops()
+		tw.tween_property(m, "albedo_color:a", 0.15, 0.6).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(m, "albedo_color:a", 0.5, 0.6).set_trans(Tween.TRANS_SINE)
+		var tag := PriceTag.new()
+		tag.position = Vector3(0, 0.75, 0.1)
+		tag.scale = Vector3.ONE * 1.35
+		root.add_child(tag)
+		tag.show_text("%d · %s" % [o.steps, o.text], c if o.tone != "neutral" else Color.WHITE)
+		root.scale = Vector3(0.6, 0.6, 0.6)
+		create_tween().tween_property(root, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_targets.append({"tile": o.tile, "node": root})
+
+
+func clear_targets() -> void:
+	for t: Dictionary in _targets:
+		var n: Node3D = t.node
+		if is_instance_valid(n):
+			n.queue_free()
+	_targets.clear()
+
+
+func set_tags_visible(on: bool) -> void:
+	for e: Dictionary in _tiles:
+		if e.tag != null:
+			e.tag.visible = on

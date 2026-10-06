@@ -14,6 +14,7 @@ const Bot = preload("res://core/bot.gd")
 const Board3D = preload("res://game3d/board3d.gd")
 const Hud = preload("res://ui/hud.gd")
 const Menu = preload("res://ui/menu.gd")
+const Dice3D = preload("res://game3d/dice3d.gd")
 
 const SAVE_PATH := "user://match.save"
 const PLAYER_COLORS := [Color("ffc857"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
@@ -27,6 +28,7 @@ var board: Node3D
 var hud: Control
 var menu: Control
 var camera: Camera3D
+var dice3d: Node3D
 
 var auto := false
 var seed_arg := -1
@@ -42,6 +44,8 @@ var _orbit_angle := 0.0
 var _session := 0
 var menu_shot := ""
 var resume_shot := ""
+var closeup_tile := -1
+var showcase := false
 
 
 func _ready() -> void:
@@ -60,6 +64,10 @@ func _ready() -> void:
 				shot_tile = int(args[i + 1])
 			"--menu-shot":
 				menu_shot = args[i + 1]
+			"--showcase":
+				showcase = true
+			"--closeup":
+				closeup_tile = int(args[i + 1])
 			"--resume-shot":
 				resume_shot = args[i + 1]
 	_build_world()
@@ -114,9 +122,9 @@ func _build_world() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("cbc4e8")
-	env.ambient_light_energy = 0.5
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.92
+	env.ambient_light_energy = 0.4
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 1.0
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.glow_strength = 1.0
@@ -135,7 +143,7 @@ func _build_world() -> void:
 
 	var key := DirectionalLight3D.new()
 	key.light_color = Color("ffd2a6")
-	key.light_energy = 2.3
+	key.light_energy = 2.0
 	key.rotation_degrees = Vector3(-36, -38, 0)
 	key.shadow_enabled = true
 	key.shadow_blur = 1.6
@@ -149,6 +157,8 @@ func _build_world() -> void:
 
 	board = Board3D.new()
 	add_child(board)
+	dice3d = Dice3D.new()
+	add_child(dice3d)
 
 	camera = Camera3D.new()
 	camera.keep_aspect = Camera3D.KEEP_WIDTH
@@ -246,6 +256,12 @@ func _place_camera() -> void:
 	var aspect := vp.y / maxf(vp.x, 1.0)
 	var zoom := clampf(1.0 - (aspect - 1.78) * 0.3, 0.86, 1.0)
 	var look := CAM_LOOK + _focus
+	if closeup_tile >= 0:
+		# Review mode: a low, close camera on one tile.
+		look = Board3D.tile_center(closeup_tile) + Vector3(0, 0.3, 0)
+		camera.position = look + Vector3(-1.2, 1.5, 2.2)
+		camera.look_at(look, Vector3.UP)
+		return
 	camera.position = look + CAM_OFFSET * zoom
 	camera.look_at(look, Vector3.UP)
 
@@ -280,12 +296,36 @@ func _new_game(my_tycoon: String, rounds: int) -> void:
 	g = Game.new(cfg)
 	board.setup(g, PLAYER_COLORS)
 	hud.setup(g, PLAYER_COLORS, 0)
+	if showcase:
+		# Review staging: the whole Docklands district built up, landmark included.
+		for k in 3:
+			var t: int = Board.district_tiles(0)[k]
+			g.owner_of[t] = 0
+			g.level_of[t] = [3, 4, 5][k]
+		board.setup(g, PLAYER_COLORS)
+		board.set_tags_visible(false)
 	# Starting deeds are already on the board; skip their announcements.
 	g.events = g.events.filter(func(ev: Dictionary) -> bool: return ev.t != "own")
 	_pump()
 
 
+func _show_targets(pd: Dictionary) -> void:
+	if showcase or (pd.type != "move" and pd.type != "metro"):
+		return
+	var list := []
+	for s: int in pd.options:
+		var pv: Dictionary = g.landing_preview(pd.player, s)
+		pv.steps = s
+		list.append(pv)
+	board.show_targets(list)
+	var mid := Vector3.ZERO
+	for pv: Dictionary in list:
+		mid += Board3D.tile_center(pv.tile)
+	_focus_on(mid / list.size())
+
+
 func _on_chosen(choice: Dictionary) -> void:
+	board.clear_targets()
 	if not g.submit(choice):
 		push_warning("Rejected choice %s" % choice)
 	decisions += 1
@@ -316,6 +356,7 @@ func _pump() -> void:
 		if shot_path != "" and decisions >= shot_after and who == 0:
 			Engine.time_scale = 1.0
 			hud.show_decision(pd)
+			_show_targets(pd)
 			if shot_tile >= 0:
 				hud.show_tile(shot_tile)
 			await get_tree().create_timer(0.8).timeout
@@ -331,6 +372,7 @@ func _pump() -> void:
 			decisions += 1
 			continue
 		hud.show_decision(pd)
+		_show_targets(pd)
 		_save_match()
 		break
 	if _pump_session == session:
@@ -378,8 +420,12 @@ func _play(ev: Dictionary) -> void:
 		"roll":
 			Fx.play("dice")
 			Fx.buzz(35, 0.4)
+			var land := Vector3(_focus.x * 0.6, 0.06, _focus.z * 0.6 + 0.4)
+			dice3d.throw(ev.dice, land)
 			await hud.roll_dice(ev.dice)
 		"move":
+			board.clear_targets()
+			dice3d.clear()
 			_focus_on(Board3D.tile_center(ev.to))
 			await board.move_token(ev.p, ev.from, ev.to, ev.get("jump", false))
 			Fx.play("land")
@@ -470,6 +516,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var hit := origin + dir * ((Board3D.TILE_TOP - origin.y) / dir.y)
 	var tile := Board3D.tile_at(hit)
+	# Tapping a highlighted destination makes that move.
+	var pd: Dictionary = g.pending if g != null else {}
+	if tile >= 0 and not menu.visible and pd.get("player", -1) == 0 and (pd.type == "move" or pd.type == "metro"):
+		for s: int in pd.options:
+			if (g.players[0].pos + s) % Board.TILE_COUNT == tile:
+				hud.hide_tile()
+				hud._emit({"steps": s})
+				return
 	if tile >= 0:
 		hud.show_tile(tile)
 	else:

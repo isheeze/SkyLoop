@@ -278,6 +278,54 @@ func leader() -> int:
 	return best
 
 
+## What would happen to player pi moving `steps` from where they stand: a short label and
+## a tone ("good", "bad" or "neutral") for the move preview.
+func landing_preview(pi: int, steps: int) -> Dictionary:
+	var p: Player = players[pi]
+	var tile := (p.pos + steps) % Board.TILE_COUNT
+	var passes := p.pos + steps >= Board.TILE_COUNT
+	var t: Dictionary = Board.TILES[tile]
+	var text := ""
+	var tone := "neutral"
+	match t.kind:
+		Board.Kind.PROPERTY:
+			var o: int = owner_of[tile]
+			if o == -1:
+				text = "Buy $%d" % price_for(pi, tile)
+				tone = "good" if p.cash >= price_for(pi, tile) else "neutral"
+			elif o == pi:
+				text = "Yours"
+			else:
+				var r := rent_for(tile)
+				if p.shield:
+					r = _r5(r * 0.5)
+				text = "Pay $%d" % r if r > 0 else "Free"
+				tone = "bad" if r > 0 else "neutral"
+		Board.Kind.JACKPOT:
+			text = "+$%d" % pot
+			tone = "good"
+		Board.Kind.TAX_RAID:
+			text = "-$%d" % _r5(p.cash * Board.TAX_RAID_RATE)
+			tone = "bad"
+		Board.Kind.AUDIT:
+			text = "Audit"
+			tone = "bad"
+		Board.Kind.WINDFALL:
+			text = "+$%d" % (40 + 10 * round_no)
+			tone = "good"
+		Board.Kind.METRO:
+			text = "Ride"
+		Board.Kind.PERMIT_OFFICE:
+			text = "Permit"
+			tone = "good"
+		Board.Kind.PAYDAY:
+			text = "Payday"
+			tone = "good"
+	if passes and t.kind != Board.Kind.PAYDAY:
+		text += "  +$%d" % int(Board.SALARY * mods.salary)
+	return {"tile": tile, "text": text, "tone": tone}
+
+
 # ---------------------------------------------------------------- choices
 
 ## Applies a choice for the current `pending` decision. Returns false if it is illegal.
