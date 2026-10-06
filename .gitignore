@@ -1,0 +1,10 @@
+.godot/
+/android/
+/build/
+/shots/
+*.apk
+*.aab
+*.idsig
+*.keystore
+art/incoming/*.zip
+*.blend1
