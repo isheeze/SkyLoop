@@ -60,8 +60,13 @@ var _dtiles: Array = []
 var _leader := -1
 
 
-## config: {"players": [{"name", "tycoon", "bot"}], "seed": int, "rounds": int}
-func _init(config: Dictionary) -> void:
+## config: {"players": [{"name", "tycoon", "bot"}], "seed": int, "rounds": int, "deeds": int}
+## An empty config makes a blank game for `from_dict` to fill in.
+func _init(config: Dictionary = {}) -> void:
+	for d in Board.DISTRICT_COUNT:
+		_dtiles.append(Board.district_tiles(d))
+	if config.is_empty():
+		return
 	rng.seed = int(config.get("seed", 1))
 	rounds = int(config.get("rounds", Board.ROUNDS))
 	for pc: Dictionary in config.players:
@@ -78,7 +83,6 @@ func _init(config: Dictionary) -> void:
 	for d in Board.DISTRICT_COUNT:
 		demand.append(Board.DEMAND_START)
 		_idle.append(0)
-		_dtiles.append(Board.district_tiles(d))
 	mods = {"rent": 1.0, "build": 1.0, "salary": 1.0, "price": 1.0, "blackout": -1}
 	_deal_deeds(int(config.get("deeds", Board.START_DEEDS)))
 	next_headline = _draw_headline()
@@ -101,6 +105,48 @@ func _deal_deeds(count: int) -> void:
 			owner_of[tile] = pi
 			players[pi].cash -= Board.TILES[tile].price
 			_ev("own", {"p": pi, "tile": tile, "paid": Board.TILES[tile].price, "how": "deed"})
+
+
+# ---------------------------------------------------------------- save / restore
+
+const _PLAYER_FIELDS := ["name", "tycoon", "is_bot", "pos", "cash", "steer", "debt", "frozen",
+	"permit", "shield", "squeeze", "power_used", "bailouts"]
+const _STATE_FIELDS := ["owner_of", "level_of", "demand", "pot", "round_no", "rounds", "turn",
+	"headline", "next_headline", "mods", "dice", "pending", "over", "winner", "win_reason", "stats",
+	"_stage", "_perk_due", "_auction", "_deck", "_idle", "_leader"]
+const SAVE_VERSION := 1
+
+
+## A complete snapshot of the match (everything except unplayed `events`). Values keep their
+## Godot types, so store it with `var_to_bytes` / `store_var`, not JSON.
+func to_dict() -> Dictionary:
+	var d := {"version": SAVE_VERSION, "rng_seed": rng.seed, "rng_state": rng.state, "players": []}
+	for p: Player in players:
+		var pd := {}
+		for f: String in _PLAYER_FIELDS:
+			pd[f] = p.get(f)
+		d.players.append(pd)
+	for f: String in _STATE_FIELDS:
+		var v = get(f)
+		d[f] = v.duplicate(true) if v is Array or v is Dictionary else v
+	return d
+
+
+static func from_dict(d: Dictionary):
+	if int(d.get("version", 0)) != SAVE_VERSION:
+		return null
+	var g = new()
+	g.rng.seed = d.rng_seed
+	g.rng.state = d.rng_state
+	for pd: Dictionary in d.players:
+		var p := Player.new()
+		for f: String in _PLAYER_FIELDS:
+			p.set(f, pd[f])
+		g.players.append(p)
+	for f: String in _STATE_FIELDS:
+		var v = d[f]
+		g.set(f, v.duplicate(true) if v is Array or v is Dictionary else v)
+	return g
 
 
 # ---------------------------------------------------------------- queries

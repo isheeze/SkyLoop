@@ -3,6 +3,7 @@ extends Control
 ## toggles and a short how-to-play card. Emits `start` when the player taps Play.
 
 signal start(tycoon: String, rounds: int)
+signal resume
 
 const Board = preload("res://core/board.gd")
 const TYCOON_COLORS := {"developer": Color("ff9f43"), "shark": Color("ff5d73"),
@@ -15,6 +16,7 @@ var _picker: HBoxContainer
 var _blurb: Label
 var _rules: PanelContainer
 var _length_buttons := {}
+var _continue: Button
 
 
 func setup(hud_ref) -> void:
@@ -97,6 +99,15 @@ func setup(hud_ref) -> void:
 		Fx.buzz(30)
 		start.emit(_tycoon, _rounds))
 	v.add_child(play)
+	_continue = Button.new()
+	_continue.text = "Continue your match"
+	_continue.custom_minimum_size = Vector2(0, 96)
+	_continue.visible = false
+	_continue.pressed.connect(func() -> void:
+		Fx.play("click")
+		resume.emit())
+	v.add_child(_continue)
+	v.move_child(_continue, play.get_index())
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -222,3 +233,7 @@ func _build_rules() -> void:
 		Fx.play("click")
 		_rules.visible = false)
 	v.add_child(ok)
+
+
+func set_can_resume(on: bool) -> void:
+	_continue.visible = on

@@ -15,6 +15,7 @@ const Board3D = preload("res://game3d/board3d.gd")
 const Hud = preload("res://ui/hud.gd")
 const Menu = preload("res://ui/menu.gd")
 
+const SAVE_PATH := "user://match.save"
 const PLAYER_COLORS := [Color("ffc857"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
 const CAM_OFFSET := Vector3(0, 8.6, 3.9)
 const CAM_LOOK := Vector3(0, 0, 0.35)
@@ -40,6 +41,7 @@ var _orbit := false
 var _orbit_angle := 0.0
 var _session := 0
 var menu_shot := ""
+var resume_shot := ""
 
 
 func _ready() -> void:
@@ -58,6 +60,8 @@ func _ready() -> void:
 				shot_tile = int(args[i + 1])
 			"--menu-shot":
 				menu_shot = args[i + 1]
+			"--resume-shot":
+				resume_shot = args[i + 1]
 	_build_world()
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -69,6 +73,7 @@ func _ready() -> void:
 	layer.add_child(menu)
 	menu.setup(hud)
 	menu.start.connect(_on_start)
+	menu.resume.connect(_on_resume)
 	if auto or shot_path != "":
 		if auto:
 			Engine.time_scale = 4.0
@@ -76,6 +81,19 @@ func _ready() -> void:
 		_new_game("", Board.ROUNDS)
 	else:
 		_show_menu()
+		if resume_shot != "":
+			_on_start("shark", 8)
+			while g.pending.player != 0 or hud._actions.get_child_count() == 0:
+				await get_tree().create_timer(0.2).timeout
+			var before: int = g.players[0].cash
+			_save_match()
+			_show_menu()
+			await get_tree().create_timer(0.5).timeout
+			_on_resume()
+			await get_tree().create_timer(1.5).timeout
+			print("RESUME cash before=%d after=%d tycoon=%s" % [before, g.players[0].cash, g.players[0].tycoon])
+			shot_path = resume_shot
+			await _save_shot()
 		if menu_shot != "":
 			await get_tree().create_timer(1.5).timeout
 			shot_path = menu_shot
@@ -175,7 +193,44 @@ func _show_menu() -> void:
 	board.setup(g, PLAYER_COLORS)
 	hud.visible = false
 	menu.visible = true
+	menu.set_can_resume(FileAccess.file_exists(SAVE_PATH))
 	_orbit = true
+
+
+func _on_resume() -> void:
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var data = f.get_var() if f != null else null
+	var restored = Game.from_dict(data.game) if data is Dictionary and data.has("game") else null
+	if restored == null:
+		DirAccess.remove_absolute(SAVE_PATH)
+		menu.set_can_resume(false)
+		return
+	_session += 1
+	_orbit = false
+	menu.visible = false
+	hud.visible = true
+	g = restored
+	personas = data.personas
+	bot_rng.seed = data.bot_rng[0]
+	bot_rng.state = data.bot_rng[1]
+	board.setup(g, PLAYER_COLORS)
+	hud.setup(g, PLAYER_COLORS, 0)
+	hud.show_headline(g.headline, g.next_headline)
+	_focus_on(board.token_position(g.turn))
+	if g.pending.get("type", "") == "move":
+		await hud.roll_dice(g.dice)
+	_pump()
+
+
+## Autosave, taken whenever the game waits on the human, so a match survives the app being
+## closed or killed.
+func _save_match() -> void:
+	if g == null or g.over or auto or shot_path != "":
+		return
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_var({"game": g.to_dict(), "personas": personas, "bot_rng": [bot_rng.seed, bot_rng.state]})
 
 
 func _on_start(tycoon: String, rounds: int) -> void:
@@ -248,6 +303,7 @@ func _pump() -> void:
 		if session != _session:
 			break
 		if g.over:
+			DirAccess.remove_absolute(SAVE_PATH)
 			Fx.play("win" if g.winner == 0 else "lose")
 			Fx.buzz(200 if g.winner == 0 else 80, 0.8)
 			hud.show_results(_show_menu)
@@ -275,6 +331,7 @@ func _pump() -> void:
 			decisions += 1
 			continue
 		hud.show_decision(pd)
+		_save_match()
 		break
 	if _pump_session == session:
 		_pump_session = -1
@@ -421,6 +478,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _notification(what: int) -> void:
 	# Android back button: from a game, open the pause menu; from the title screen, quit.
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if menu != null and not menu.visible:
+			_save_match()
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		if menu.visible:
 			get_tree().quit()

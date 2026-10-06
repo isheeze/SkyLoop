@@ -39,6 +39,8 @@ func setup(game, player_colors: Array) -> void:
 		c.queue_free()
 	_tiles.clear()
 	_tokens.clear()
+	_token_tile.clear()
+	_puffs.clear()
 	_build_static()
 	for i in Board.TILE_COUNT:
 		_build_tile(i)
