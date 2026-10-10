@@ -7,6 +7,31 @@ const Board = preload("res://core/board.gd")
 const BUILDING_SHADER = preload("res://game3d/building.gdshader")
 
 static var _mats := {}
+static var _fixed := {}  # material instance id -> true
+
+
+## Instantiates a Blender model and makes its materials use the baked vertex colours (the
+## export step paints plain colours into vertices so each model draws with one material).
+static func instance(path: String) -> Node3D:
+	var n: Node3D = (load(path) as PackedScene).instantiate()
+	_use_vertex_colors(n)
+	return n
+
+
+static func _use_vertex_colors(n: Node) -> void:
+	if n is MeshInstance3D:
+		var mesh: Mesh = (n as MeshInstance3D).mesh
+		if mesh != null:
+			for i in mesh.get_surface_count():
+				var m := mesh.surface_get_material(i) as BaseMaterial3D
+				if m != null and not _fixed.has(m.get_instance_id()):
+					_fixed[m.get_instance_id()] = true
+					# Only the shared "Painted" material carries baked colours (stored linear).
+					if m.resource_name.begins_with("Painted"):
+						m.vertex_color_use_as_albedo = true
+						m.vertex_color_is_srgb = false
+	for c in n.get_children():
+		_use_vertex_colors(c)
 
 
 # ---------------------------------------------------------------- materials
@@ -142,9 +167,10 @@ static func building(d: int, level: int, seed: int) -> Node3D:
 	var path := "res://art/models/d%d_l%d_v%d.glb" % [d, level, seed % 3]
 	if level == 5:
 		path = "res://art/models/d%d_l5.glb" % d
-	if level > 0 and ResourceLoader.exists(path):
-		var scene: PackedScene = load(path)
-		var inst: Node3D = scene.instantiate()
+	if level == 0:
+		path = "res://art/models/plot.glb"
+	if ResourceLoader.exists(path):
+		var inst: Node3D = instance(path)
 		inst.set_meta("prescaled", true)
 		return inst
 	var root := Node3D.new()
@@ -249,6 +275,12 @@ static func _landmark(root: Node3D, d: int) -> void:
 
 ## A small "for sale" sign for unowned lots.
 static func for_sale(d: int) -> Node3D:
+	if ResourceLoader.exists("res://art/models/sale.glb"):
+		var sign: Node3D = instance("res://art/models/sale.glb")
+		sign.position = Vector3(0.22, 0, 0.12)
+		var holder := Node3D.new()
+		holder.add_child(sign)
+		return holder
 	var root := Node3D.new()
 	cyl(root, 0.012, 0.012, 0.22, Vector3(0, 0.11, 0), mat(Color("d8d2c6")), 6)
 	box(root, Vector3(0.2, 0.12, 0.02), Vector3(0, 0.22, 0), mat(Board.DISTRICTS[d].color, 0.6, 0, 0.4))
@@ -387,8 +419,7 @@ static func cloud(rng: RandomNumberGenerator) -> Node3D:
 ## The Blender pawn, tinted with the player's colour, with a glowing ring under it.
 static func token_v2(color: Color) -> Node3D:
 	var root := Node3D.new()
-	var scene: PackedScene = load("res://art/models/token.glb")
-	var pawn: Node3D = scene.instantiate()
+	var pawn: Node3D = instance("res://art/models/token.glb")
 	pawn.scale = Vector3.ONE * 0.95
 	root.add_child(pawn)
 	var m := StandardMaterial3D.new()

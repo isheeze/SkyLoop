@@ -2,7 +2,7 @@ extends Node3D
 ## Throws physical-looking dice onto the island: an arc, two bounces, a tumble that settles
 ## on the rolled faces. Purely visual; the engine has already decided the values.
 
-const DIE = preload("res://art/models/die.glb")
+const Models = preload("res://game3d/models.gd")
 ## Local axis of each face, in Godot space (see tools/blender/build_props.py).
 const FACE_AXIS := {1: Vector3.UP, 6: Vector3.DOWN, 2: Vector3.BACK, 5: Vector3.FORWARD,
 	3: Vector3.RIGHT, 4: Vector3.LEFT}
@@ -16,7 +16,7 @@ func throw(values: Array, at: Vector3) -> void:
 	clear()
 	var tweens := []
 	for i in values.size():
-		var d: Node3D = DIE.instantiate()
+		var d: Node3D = Models.instance("res://art/models/die.glb")
 		add_child(d)
 		_dice.append(d)
 		var side := (i - (values.size() - 1) / 2.0) * 0.55

@@ -30,6 +30,8 @@ var menu: Control
 var camera: Camera3D
 var dice3d: Node3D
 var _sky: TextureRect
+var _shake := 0.0  # camera shake strength, decays to 0
+var _punch := 0.0  # camera push-in for big moments, decays to 0
 
 var auto := false
 var seed_arg := -1
@@ -47,6 +49,7 @@ var menu_shot := ""
 var resume_shot := ""
 var closeup_tile := -1
 var showcase := false
+var juice_shot := ""
 
 
 func _ready() -> void:
@@ -67,6 +70,8 @@ func _ready() -> void:
 				menu_shot = args[i + 1]
 			"--showcase":
 				showcase = true
+			"--juice-shot":
+				juice_shot = args[i + 1]
 			"--closeup":
 				closeup_tile = int(args[i + 1])
 			"--resume-shot":
@@ -102,6 +107,19 @@ func _ready() -> void:
 			await get_tree().create_timer(1.5).timeout
 			print("RESUME cash before=%d after=%d tycoon=%s" % [before, g.players[0].cash, g.players[0].tycoon])
 			shot_path = resume_shot
+			await _save_shot()
+		if juice_shot != "":
+			menu.visible = false
+			hud.visible = true
+			_orbit = false
+			_new_game("shark", 8)
+			await get_tree().create_timer(2.0).timeout
+			hud.callout("JACKPOT!", Color("ffc23d"))
+			board.confetti(Board3D.tile_center(2), 110)
+			board.coin_flight(Board3D.tile_center(0), board.token_position(1), 12)
+			_punch = 1.0
+			await get_tree().create_timer(0.45).timeout
+			shot_path = juice_shot
 			await _save_shot()
 		if menu_shot != "":
 			await get_tree().create_timer(1.5).timeout
@@ -148,7 +166,10 @@ func _build_world() -> void:
 	key.shadow_enabled = true
 	key.shadow_opacity = 0.55
 	key.shadow_blur = 2.5
-	key.directional_shadow_max_distance = 24.0
+	key.directional_shadow_max_distance = 22.0
+	# The board is small: one orthogonal shadow map instead of four cascades keeps the shadow
+	# pass from re-drawing the whole city four times on phones.
+	key.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	add_child(key)
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color("c9d6ff")
@@ -185,6 +206,8 @@ func _process(delta: float) -> void:
 		camera.look_at(Vector3(0, -1.6, 0), Vector3.UP)
 		return
 	_focus = _focus.lerp(_focus_target, 1.0 - exp(-3.0 * delta / maxf(Engine.time_scale, 1.0)))
+	_shake = move_toward(_shake, 0.0, delta * 0.9)
+	_punch = move_toward(_punch, 0.0, delta * 0.5)
 	_place_camera()
 
 
@@ -273,8 +296,9 @@ func _place_camera() -> void:
 		camera.position = look + Vector3(-1.2, 1.5, 2.2)
 		camera.look_at(look, Vector3.UP)
 		return
-	camera.position = look + CAM_OFFSET * zoom
-	camera.look_at(look, Vector3.UP)
+	var jitter := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * _shake * 0.12
+	camera.position = look + CAM_OFFSET * zoom * (1.0 - 0.35 * ease(_punch, 0.5)) + jitter
+	camera.look_at(look + jitter * 0.5, Vector3.UP)
 
 
 ## Drifts the camera a little toward the action without losing the whole board.
@@ -356,6 +380,9 @@ func _pump() -> void:
 		if g.over:
 			DirAccess.remove_absolute(SAVE_PATH)
 			Fx.play("win" if g.winner == 0 else "lose")
+			if g.winner == 0:
+				hud.confetti_2d()
+				Fx.play("celebrate", -2.0)
 			Fx.buzz(200 if g.winner == 0 else 80, 0.8)
 			hud.show_results(_show_menu)
 			if shot_path != "":
@@ -392,6 +419,11 @@ func _pump() -> void:
 
 func _save_shot() -> void:
 	await RenderingServer.frame_post_draw
+	print("PERF draw_calls=%d objects=%d primitives=%d fps=%d" % [
+		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+		Performance.get_monitor(Performance.TIME_FPS)])
 	get_viewport().get_texture().get_image().save_png(shot_path)
 	get_tree().quit()
 
@@ -429,6 +461,8 @@ func _play(ev: Dictionary) -> void:
 				Fx.buzz(25)
 			_focus_on(board.token_position(ev.p))
 		"roll":
+			if ev.p == 0 and not auto and shot_path == "":
+				await hud.wait_roll()
 			Fx.play("dice")
 			Fx.buzz(35, 0.4)
 			var land := Vector3(_focus.x * 0.6, 0.06, _focus.z * 0.6 + 0.4)
@@ -448,6 +482,12 @@ func _play(ev: Dictionary) -> void:
 			if ev.to >= 0:
 				board.float_text(board.token_position(ev.to), "+$%d" % amount, Color("7dffb0"))
 			hud.refresh()
+			_coins_for(ev)
+			if ev.why == "rent" and ev.from == 0 and amount >= 150:
+				_shake = 0.6
+				hud.callout("-$%d" % amount, Color("ff5d73"), 104)
+			elif ev.why == "rent" and ev.to == 0 and amount >= 100:
+				hud.callout("+$%d" % amount, Color("ffc23d"), 104)
 			if ev.to == 0 or ev.from == 0:
 				Fx.play("coin" if ev.to == 0 else "pay")
 				if ev.from == 0 and amount >= 50:
@@ -459,6 +499,9 @@ func _play(ev: Dictionary) -> void:
 				"jackpot":
 					Fx.play("jackpot")
 					Fx.buzz(150, 0.8)
+					hud.callout("JACKPOT!", Color("ffc23d"))
+					board.confetti(Board3D.tile_center(14))
+					_punch = 1.0
 					hud.toast("JACKPOT! %s takes $%d" % [_name(ev.to), amount], Color("ffd35c"))
 					await _wait(0.7)
 				"tax_raid":
@@ -479,6 +522,18 @@ func _play(ev: Dictionary) -> void:
 			Fx.play("landmark" if ev.level == Board.LANDMARK_LEVEL else "build")
 			Fx.buzz(30)
 			board.update_tile(ev.tile)
+			if ev.level == Board.LANDMARK_LEVEL:
+				_focus_on(Board3D.tile_center(ev.tile))
+				_punch = 1.0
+				Fx.play("celebrate")
+				Fx.buzz(160, 0.8)
+				board.confetti(Board3D.tile_center(ev.tile), 110)
+				hud.callout("LANDMARK!", (PLAYER_COLORS[ev.p] as Color).lightened(0.1))
+				await _wait(1.0)
+			elif ev.p == 0:
+				Fx.play("levelup", -4.0)
+				board.float_text(Board3D.tile_center(ev.tile) + Vector3(0, 0.5, 0), "LEVEL %d" % ev.level,
+					Color("ffc23d"))
 			var what: String = Board.DISTRICTS[Board.TILES[ev.tile].district].landmark \
 				if ev.level == Board.LANDMARK_LEVEL else "level %d" % ev.level
 			hud.toast("%s built %s on %s" % [_name(ev.p), what, Board.TILES[ev.tile].name],
@@ -551,3 +606,27 @@ func _notification(what: int) -> void:
 			get_tree().quit()
 		else:
 			hud.toggle_pause()
+
+
+## Flies coins along a payment: payer to payee, or from the paying tile for bank money.
+func _coins_for(ev: Dictionary) -> void:
+	var amount: int = ev.amount
+	var n := clampi(amount / 25, 3, 14)
+	var from := Vector3.INF
+	var to := Vector3.INF
+	if ev.from >= 0:
+		from = board.token_position(ev.from)
+	if ev.to >= 0:
+		to = board.token_position(ev.to)
+	match ev.why:
+		"salary":
+			from = Board3D.tile_center(0)
+		"jackpot":
+			from = Board3D.tile_center(14)
+		"windfall":
+			from = Board3D.tile_center(19)
+		"tax_raid", "audit":
+			to = Board3D.tile_center(14)
+	if from == Vector3.INF or to == Vector3.INF or from.distance_to(to) < 0.05:
+		return
+	board.coin_flight(from, to, n)

@@ -80,15 +80,19 @@ def rbox(size, loc, mat, r=0.025, rot=(0, 0, 0), seg=3):
     o = bpy.context.active_object
     o.scale = size
     bpy.ops.object.transform_apply(scale=True)
+    # Small details (windows, sills, fences) only need a single chamfer: it reads the same
+    # from the game camera at a fraction of the triangles.
+    if min(size) < 0.06 and max(size) < 0.2:
+        seg = 1
     return _add(o, mat, min(r, min(size) * 0.45), seg)
 
 
-def cyl(r1, r2, h, loc, mat, verts=24, bevel=0.012, rot=(0, 0, 0)):
+def cyl(r1, r2, h, loc, mat, verts=20, bevel=0.012, rot=(0, 0, 0)):
     bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r1, radius2=r2, depth=h, location=loc, rotation=rot)
     return _add(bpy.context.active_object, mat, min(bevel, h * 0.4), 2)
 
 
-def ball(r, loc, mat, scale=(1, 1, 1), seg=20):
+def ball(r, loc, mat, scale=(1, 1, 1), seg=14):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=max(8, seg // 2), radius=r, location=loc)
     o = bpy.context.active_object
     o.scale = scale
@@ -280,7 +284,55 @@ def export(path):
         p.select_set(True)
     bpy.context.view_layer.objects.active = _parts[0]
     bpy.ops.object.join()
+    obj = bpy.context.active_object
+    _bake_vertex_colors(obj)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_apply=True,
-                              export_yup=True)
+                              export_yup=True, export_vertex_color="ACTIVE")
     _parts = []
+
+
+def _is_plain(m):
+    b = m.node_tree.nodes["Principled BSDF"]
+    return (b.inputs["Metallic"].default_value < 0.05 and b.inputs["Emission Strength"].default_value <= 0
+            and b.inputs["Alpha"].default_value >= 1.0)
+
+
+def _bake_vertex_colors(obj):
+    """Moves every plain (matte, opaque, non-glowing) material's colour into a vertex colour
+    and replaces them all with one shared material, so a building draws in one or two calls
+    instead of eight. Glowing, glass and metal materials stay separate (painted white)."""
+    me = obj.data
+    mats = list(me.materials)
+    plain = [m is not None and _is_plain(m) for m in mats]
+    attr = me.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
+    shared = bpy.data.materials.get("Painted") or bpy.data.materials.new("Painted")
+    shared.use_nodes = True
+    bsdf = shared.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Roughness"].default_value = 0.85
+    node = shared.node_tree.nodes.new("ShaderNodeVertexColor")
+    node.layer_name = "Col"
+    shared.node_tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
+    new_mats = [shared] + [m for m, p in zip(mats, plain) if not p]
+    remap = {}
+    for i, (m, p) in enumerate(zip(mats, plain)):
+        remap[i] = 0 if p else new_mats.index(m)
+    colors = []
+    for m, p in zip(mats, plain):
+        if p:
+            c = m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value
+            colors.append((c[0], c[1], c[2], 1.0))
+        else:
+            colors.append((1.0, 1.0, 1.0, 1.0))
+    original = [poly.material_index for poly in me.polygons]
+    for poly in me.polygons:
+        col = colors[poly.material_index]
+        for li in poly.loop_indices:
+            attr.data[li].color = col
+    # Swap the slots first: clearing materials resets every polygon's index to 0.
+    me.materials.clear()
+    for m in new_mats:
+        me.materials.append(m)
+    for poly, idx in zip(me.polygons, original):
+        poly.material_index = remap[idx]
+    me.color_attributes.active_color = attr

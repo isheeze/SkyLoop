@@ -7,7 +7,8 @@ const GROUPS := {
 	"coin": ["coin_1", "coin_2"],
 }
 const SINGLES := ["hop", "land", "pay", "buy", "build", "click", "jackpot", "win", "lose", "headline",
-	"bailout", "toast", "auction", "your_turn", "landmark", "shuffle"]
+	"bailout", "toast", "auction", "your_turn", "landmark", "shuffle", "shake", "coin_tick", "levelup",
+	"celebrate"]
 const VOLUME := {"hop": -14.0, "toast": -10.0, "click": -6.0, "land": -4.0, "headline": -6.0}
 
 var sound := true
@@ -34,7 +35,7 @@ func _ready() -> void:
 		_players.append(p)
 
 
-func play(name: String, volume_db := 0.0, pitch_jitter := 0.06) -> void:
+func play(name: String, volume_db := 0.0, pitch_jitter := 0.06, pitch := 1.0) -> void:
 	if not sound or not _streams.has(name):
 		return
 	var list: Array = _streams[name]
@@ -42,7 +43,7 @@ func play(name: String, volume_db := 0.0, pitch_jitter := 0.06) -> void:
 	_next = (_next + 1) % _players.size()
 	p.stream = list[randi() % list.size()]
 	p.volume_db = volume_db + VOLUME.get(name, 0.0)
-	p.pitch_scale = 1.0 + randf_range(-pitch_jitter, pitch_jitter)
+	p.pitch_scale = pitch + randf_range(-pitch_jitter, pitch_jitter)
 	p.play()
 
 

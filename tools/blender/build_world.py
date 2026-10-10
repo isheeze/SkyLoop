@@ -45,7 +45,7 @@ def island():
     rings = [(0.0, 1.0, 0), (-0.09, 1.012, 0), (-0.2, 1.0, 1), (-0.26, 0.99, 2), (-0.62, 0.975, 3),
              (-1.05, 0.9, 4), (-1.6, 0.76, 5), (-2.3, 0.56, 6), (-3.0, 0.34, 7), (-3.6, 0.14, 7), (-4.0, 0.02, 7)]
     mats = [grass, grass_dark, soils[0], soils[1], soils[2], soils[3], soils[0], rock]
-    N = 128
+    N = 80
     base = superellipse(N, 4.6)
     phase = [rnd.random() * math.tau for _ in range(4)]
 
@@ -366,3 +366,33 @@ if "--only-corners" not in sys.argv:
     board()
 corners()
 lot_and_token()
+
+
+def plot_and_sign():
+    """Owned-but-unbuilt lot (a fenced garden plot) and the unowned "for sale" sign."""
+    C.reset()
+    C.rbox((0.56, 0.46, 0.03), (0, 0, 0.015), C.M("#86cf6a", 0.95), r=0.04)
+    white = C.M("#fffaf2", 0.8)
+    for side in (-1, 1):
+        for k in range(6):
+            C.rbox((0.018, 0.018, 0.08), (side * 0.27, -0.2 + k * 0.08, 0.055), white, r=0.005)
+        C.rbox((0.014, 0.46, 0.016), (side * 0.27, 0, 0.075), white, r=0.004)
+    for k in range(7):
+        C.rbox((0.018, 0.018, 0.08), (-0.24 + k * 0.08, 0.22, 0.055), white, r=0.005)
+    C.rbox((0.54, 0.014, 0.016), (0, 0.22, 0.075), white, r=0.004)
+    leaf = C.M("#5fae54", 0.9)
+    C.bush(-0.14, 0.08, 1.3, leaf, flowers=C.M("#ff8fab", 0.8))
+    C.bush(0.13, 0.1, 1.1, leaf, flowers=C.M("#ffd166", 0.8))
+    C.cyl(0.03, 0.03, 0.06, (0.0, -0.1, 0.03), C.M("#c98d5a", 0.85), verts=12)
+    C.export(os.path.join(OUT, "plot.glb"))
+    C.reset()
+    wood = C.M("#c98d5a", 0.85)
+    C.cyl(0.012, 0.014, 0.26, (0, 0, 0.13), wood, verts=10)
+    C.rbox((0.2, 0.025, 0.11), (0, -0.012, 0.22), C.M("#fffaf2", 0.8), r=0.012)
+    C.rbox((0.16, 0.03, 0.05), (0, -0.016, 0.22), C.M("#3ddc97", 0.6), r=0.008)
+    C.export(os.path.join(OUT, "sale.glb"))
+    print("plot and sign done")
+
+
+if "--plot" in sys.argv:
+    plot_and_sign()

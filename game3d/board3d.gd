@@ -34,6 +34,7 @@ func _process(delta: float) -> void:
 	_time += delta
 	# The island bobs gently, as if floating.
 	position.y = sin(_time * 0.6) * 0.03
+	_update_life(delta)
 
 
 func setup(game, player_colors: Array) -> void:
@@ -46,6 +47,7 @@ func setup(game, player_colors: Array) -> void:
 	_token_tile.clear()
 	_targets.clear()
 	_build_static()
+	_spawn_life()
 	for i in Board.TILE_COUNT:
 		_build_tile(i)
 	for pi in g.players.size():
@@ -126,8 +128,7 @@ func token_slot(i: int, k: int, n: int) -> Vector3:
 
 func _build_static() -> void:
 	for name in ["island", "board"]:
-		var scene: PackedScene = load("res://art/models/%s.glb" % name)
-		add_child(scene.instantiate())
+		add_child(Models.instance("res://art/models/%s.glb" % name))
 
 
 func _build_tile(i: int) -> void:
@@ -138,7 +139,7 @@ func _build_tile(i: int) -> void:
 	var inner := inner_dir(i)
 	var corner := inner == Vector3.ZERO
 	var entry := {"root": root, "lot": null, "flag": null, "building": null, "tag": null}
-	var lot: Node3D = (load("res://art/models/lot.glb") as PackedScene).instantiate()
+	var lot: Node3D = Models.instance("res://art/models/lot.glb")
 	root.add_child(lot)
 	entry.lot = _first_mesh(lot)
 	entry.lot.material_override = Models.mat(LOT_COLOR if not corner else Color("f4ead6"), 0.9)
@@ -153,7 +154,7 @@ func _build_tile(i: int) -> void:
 		entry.flag = flag
 	else:
 		var path := "res://art/models/corner_%s.glb" % CORNER_MODELS[t.kind]
-		var prop: Node3D = (load(path) as PackedScene).instantiate() if ResourceLoader.exists(path) \
+		var prop: Node3D = Models.instance(path) if ResourceLoader.exists(path) \
 			else Models.corner_prop(t.kind)
 		prop.position = Vector3(0, TILE_TOP, 0) - inner * 0.05
 		prop.rotation.y = facing if not corner else atan2(-tile_center(i).x, -tile_center(i).z)
@@ -410,3 +411,126 @@ func set_tags_visible(on: bool) -> void:
 	for e: Dictionary in _tiles:
 		if e.tag != null:
 			e.tag.visible = on
+
+
+# ---------------------------------------------------------------- juice
+
+var _coin_mesh: CylinderMesh
+var _coin_mat: StandardMaterial3D
+var _life: Array = []  # [{node, kind, t, speed, lane|radius, h}]
+
+
+## Gold coins arc from one point to another; each landing ticks a little higher in pitch.
+func coin_flight(from: Vector3, to: Vector3, count: int) -> void:
+	if _coin_mesh == null:
+		_coin_mesh = CylinderMesh.new()
+		_coin_mesh.top_radius = 0.055
+		_coin_mesh.bottom_radius = 0.055
+		_coin_mesh.height = 0.016
+		_coin_mesh.radial_segments = 16
+		_coin_mat = Models.mat(Color("f2c14e"), 0.3, 0.7, 0.4)
+	for k in count:
+		var c := MeshInstance3D.new()
+		c.mesh = _coin_mesh
+		c.material_override = _coin_mat
+		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(c)
+		var a := from + Vector3(randf_range(-0.12, 0.12), 0.3, randf_range(-0.12, 0.12))
+		var b := to + Vector3(0, 0.35, 0)
+		c.position = a
+		c.scale = Vector3.ZERO
+		var pitch := 1.0 + k * 0.05
+		var tw := c.create_tween()
+		tw.tween_interval(k * 0.05)
+		tw.tween_property(c, "scale", Vector3.ONE, 0.08)
+		tw.tween_method(func(t: float) -> void:
+			c.position = a.lerp(b, t) + Vector3(0, sin(t * PI) * 0.9, 0)
+			c.rotation = Vector3(t * 9.0, t * 5.0, 0.0),
+			0.0, 1.0, 0.5).set_trans(Tween.TRANS_SINE)
+		tw.tween_callback(func() -> void:
+			Fx.play("coin_tick", -8.0, 0.0, pitch)
+			c.queue_free())
+	await get_tree().create_timer(0.55 + count * 0.05).timeout
+
+
+## A burst of confetti at a point on the board.
+func confetti(at: Vector3, amount := 70) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.amount = amount
+	p.lifetime = 1.6
+	p.explosiveness = 0.95
+	p.direction = Vector3.UP
+	p.spread = 55.0
+	p.initial_velocity_min = 2.2
+	p.initial_velocity_max = 3.4
+	p.gravity = Vector3(0, -3.5, 0)
+	p.damping_min = 1.0
+	p.damping_max = 2.0
+	p.angular_velocity_min = -400.0
+	p.angular_velocity_max = 400.0
+	var q := QuadMesh.new()
+	q.size = Vector2(0.06, 0.035)
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	q.material = m
+	p.mesh = q
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.25, 0.5, 0.75, 1.0])
+	grad.colors = PackedColorArray([Color("ff5d73"), Color("ffc23d"), Color("3ddc97"), Color("5cc8ff"), Color("c77ad9")])
+	p.color_initial_ramp = grad
+	p.position = at + Vector3(0, 0.3, 0)
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(2.0).timeout.connect(p.queue_free)
+
+
+func _spawn_life() -> void:
+	_life.clear()
+	var cars := ["car_red", "car_blue", "car_yellow"]
+	for k in cars.size():
+		var path := "res://art/models/%s.glb" % cars[k]
+		if not ResourceLoader.exists(path):
+			continue
+		var n: Node3D = Models.instance(path)
+		add_child(n)
+		_life.append({"node": n, "kind": "car", "t": k / 3.0, "speed": 0.018 + k * 0.004,
+			"lane": 2.55 if k % 2 == 0 else 2.88, "dir": 1.0 if k % 2 == 0 else -1.0})
+	var balloons := ["balloon_pink", "balloon_blue"]
+	for k in balloons.size():
+		var path := "res://art/models/%s.glb" % balloons[k]
+		if not ResourceLoader.exists(path):
+			continue
+		var n: Node3D = Models.instance(path)
+		n.scale = Vector3.ONE * 1.4
+		add_child(n)
+		_life.append({"node": n, "kind": "balloon", "t": k * 0.5, "speed": 0.012, "lane": 6.6 + k * 0.9,
+			"dir": 1.0, "h": 1.2 + k * 0.9})
+
+
+static func _ring_point(t: float, r: float) -> Vector3:
+	var a := t * TAU
+	var c := cos(a)
+	var s := sin(a)
+	var k := pow(pow(absf(c), 8.0) + pow(absf(s), 8.0), -1.0 / 8.0) * r
+	return Vector3(c * k, 0, s * k)
+
+
+func _update_life(delta: float) -> void:
+	for l: Dictionary in _life:
+		var n: Node3D = l.node
+		if not is_instance_valid(n):
+			continue
+		l.t = fposmod(l.t + delta * l.speed * l.dir, 1.0)
+		if l.kind == "car":
+			var p := _ring_point(l.t, l.lane)
+			var ahead := _ring_point(l.t + 0.002 * l.dir, l.lane)
+			n.position = Vector3(p.x, ROAD_Y, p.z)
+			if ahead.distance_to(p) > 0.0001:
+				n.look_at(Vector3(ahead.x, ROAD_Y, ahead.z), Vector3.UP)
+				n.rotate_object_local(Vector3.UP, PI / 2)
+		else:
+			var a: float = l.t * TAU
+			n.position = Vector3(cos(a) * l.lane, l.h + sin(_time * 0.8 + l.lane) * 0.15, sin(a) * l.lane)

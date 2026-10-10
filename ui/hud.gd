@@ -834,3 +834,94 @@ func toggle_pause() -> void:
 		toggle_pause()
 		quit_requested.emit())
 	v.add_child(quit)
+
+
+# ---------------------------------------------------------------- juice
+
+signal rolled
+
+
+## Shows a big "hold to roll" button and waits until the player lets go of it.
+func wait_roll() -> void:
+	_clear_actions()
+	hide_dice()
+	_sheet.visible = true
+	_title.text = "Your turn"
+	_subtitle.text = "Hold to shake the dice, let go to throw."
+	var b := _button("HOLD TO ROLL", {}, true)
+	b.custom_minimum_size = Vector2(0, 150)
+	b.add_theme_font_override("font", font(900))
+	b.add_theme_font_size_override("font_size", 46)
+	b.pivot_offset = Vector2(470, 75)
+	var pulse := b.create_tween().set_loops()
+	pulse.tween_property(b, "scale", Vector2(1.03, 1.03), 0.5).set_trans(Tween.TRANS_SINE)
+	pulse.tween_property(b, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_SINE)
+	var shaking := [false]
+	b.button_down.connect(func() -> void:
+		shaking[0] = true
+		pulse.kill()
+		Fx.play("shake")
+		while shaking[0] and is_instance_valid(b):
+			b.rotation = randf_range(-0.03, 0.03)
+			Fx.buzz(18, 0.3)
+			await get_tree().create_timer(0.07).timeout)
+	b.button_up.connect(func() -> void:
+		shaking[0] = false
+		rolled.emit())
+	_actions.add_child(b)
+	await rolled
+	_clear_actions()
+
+
+## A big bouncy word in the middle of the screen ("JACKPOT!", "+$420").
+func callout(text: String, color: Color, size := 120) -> void:
+	var l := _label(text, size, 900, color)
+	l.add_theme_color_override("font_outline_color", Color("3b2a7a"))
+	l.add_theme_constant_override("outline_size", 26)
+	l.add_theme_color_override("font_shadow_color", Color(0.15, 0.1, 0.35, 0.4))
+	l.add_theme_constant_override("shadow_offset_y", 10)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	l.offset_left = -540
+	l.offset_right = 540
+	l.offset_top = -260
+	l.offset_bottom = -60
+	l.pivot_offset = Vector2(540, 100)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(l)
+	l.scale = Vector2(0.3, 0.3)
+	var tw := l.create_tween()
+	tw.tween_property(l, "scale", Vector2(1.15, 1.15), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "scale", Vector2.ONE, 0.12)
+	tw.tween_interval(0.7)
+	tw.parallel().tween_property(l, "position:y", l.position.y - 60, 0.5).set_delay(0.7)
+	tw.tween_property(l, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(l.queue_free)
+
+
+## Confetti raining over the whole screen.
+func confetti_2d() -> void:
+	var p := CPUParticles2D.new()
+	p.amount = 160
+	p.lifetime = 3.0
+	p.one_shot = true
+	p.explosiveness = 0.6
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = Vector2(560, 10)
+	p.direction = Vector2(0, 1)
+	p.spread = 25.0
+	p.gravity = Vector2(0, 520)
+	p.initial_velocity_min = 120.0
+	p.initial_velocity_max = 380.0
+	p.angular_velocity_min = -360.0
+	p.angular_velocity_max = 360.0
+	p.scale_amount_min = 10.0
+	p.scale_amount_max = 18.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.25, 0.5, 0.75, 1.0])
+	grad.colors = PackedColorArray([Color("ff5d73"), Color("ffc23d"), Color("3ddc97"), Color("5cc8ff"), Color("c77ad9")])
+	p.color_initial_ramp = grad
+	p.position = Vector2(get_viewport_rect().size.x / 2, -20)
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(3.5).timeout.connect(p.queue_free)
