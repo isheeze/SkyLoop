@@ -181,12 +181,12 @@ def board():
         C.rbox((0.26, 0.9, 0.012), (math.cos(a) * 1.95, math.sin(a) * 1.95, 0.014), path, r=0.004,
                rot=(0, 0, a + math.pi / 2))
     stone = C.M("#e9ddc9", 0.9)
-    water = C.M("#72c7e8", 0.12, metal=0.1)
+    water = C.M("#72c7e8", 0.4, metal=0.0)
     for (x, y, r) in ((0.25, 0.1, 0.62), (-0.42, -0.25, 0.4)):
         C.cyl(r + 0.07, r + 0.07, 0.05, (x, y, 0.025), stone, verts=48)
         C.cyl(r, r, 0.054, (x, y, 0.03), water, verts=48, bevel=0.0)
-    for (x, y, rot) in ((-0.12, -0.08, 0.6), (0.82, 0.12, 0.0)):
-        _bridge(x, y, rot, C.M("#f5efe4", 0.85), C.M("#c98d5a", 0.85))
+    for (x, y, rot, span) in ((-0.12, -0.08, 0.6, 0.62), (0.82, 0.12, 0.0, 0.5)):
+        _bridge(x, y, rot, C.M("#fffaf2", 0.8), C.M("#c98d5a", 0.85), span=span)
     leaves = [C.M(h, 0.9) for h in ("#78c460", "#6ab85a", "#8bd06e", "#5fae54")]
     trunk = C.M("#8a5a3c", 0.9)
     spots = [(-1.6, 1.6), (-1.2, 1.9), (1.7, 1.5), (1.95, 1.0), (-1.9, -1.4), (-1.5, -1.85), (1.55, -1.65),
@@ -221,19 +221,54 @@ def board():
     print("board done")
 
 
-def _bridge(x, y, rot, rail, deck):
-    n = 9
+def _bridge(x, y, rot, rail, deck, span=0.7, rise=0.13, width=0.2):
+    """An arched footbridge: one smooth curved deck with continuous rails and posts."""
+    n = 18
+
+    def arch(t):
+        # Parabolic arch from bank to bank, lifted slightly above the water.
+        px = (t - 0.5) * span
+        pz = 0.055 + rise * (1.0 - (2.0 * t - 1.0) ** 2)
+        return px, pz
+
+    def world(px, py, pz):
+        return (x + px * math.cos(rot) - py * math.sin(rot), y + px * math.sin(rot) + py * math.cos(rot), pz)
+
+    # Deck: a curved slab built as a strip of quads, then given thickness.
+    mesh = bpy.data.meshes.new("bridge")
+    bm = bmesh.new()
+    rows = []
+    for k in range(n + 1):
+        px, pz = arch(k / n)
+        rows.append([bm.verts.new(world(px, -width / 2, pz)), bm.verts.new(world(px, width / 2, pz))])
     for k in range(n):
-        t = k / (n - 1)
-        a = (t - 0.5) * math.pi * 0.8
-        px = (t - 0.5) * 0.62
-        pz = 0.05 + math.cos(a) * 0.12
-        cx = x + px * math.cos(rot)
-        cy = y + px * math.sin(rot)
-        C.rbox((0.085, 0.2, 0.025), (cx, cy, pz), deck, r=0.006, rot=(0, -a * 0.75, rot))
-        for side in (-1, 1):
-            ox, oy = -math.sin(rot) * 0.1 * side, math.cos(rot) * 0.1 * side
-            C.rbox((0.02, 0.02, 0.06), (cx + ox, cy + oy, pz + 0.04), rail, r=0.005)
+        bm.faces.new((rows[k][0], rows[k + 1][0], rows[k + 1][1], rows[k][1]))
+    bmesh.ops.solidify(bm, geom=bm.faces[:], thickness=0.03)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(mesh)
+    bm.free()
+    ob = bpy.data.objects.new("bridge", mesh)
+    bpy.context.collection.objects.link(ob)
+    C._add(ob, deck, 0.006, 2)
+    # Rails: smooth tubes following the arch, with posts every few steps.
+    for side in (-1, 1):
+        curve = bpy.data.curves.new("rail", "CURVE")
+        curve.dimensions = "3D"
+        curve.bevel_depth = 0.011
+        curve.bevel_resolution = 3
+        sp = curve.splines.new("POLY")
+        sp.points.add(n)
+        for k in range(n + 1):
+            px, pz = arch(k / n)
+            wx, wy, wz = world(px, side * (width / 2 - 0.01), pz + 0.075)
+            sp.points[k].co = (wx, wy, wz, 1.0)
+        o = bpy.data.objects.new("rail", curve)
+        bpy.context.collection.objects.link(o)
+        o.data.materials.append(rail)
+        C._parts.append(o)
+        for k in range(0, n + 1, 3):
+            px, pz = arch(k / n)
+            C.cyl(0.011, 0.011, 0.08, world(px, side * (width / 2 - 0.01), pz + 0.035), rail, verts=8, bevel=0.003)
 
 
 def _bench(x, y, a, wood, metal):

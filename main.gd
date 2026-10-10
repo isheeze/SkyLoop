@@ -292,7 +292,7 @@ func _place_camera() -> void:
 	var look := CAM_LOOK + _focus
 	if closeup_tile >= 0:
 		# Review mode: a low, close camera on one tile.
-		look = Board3D.tile_center(closeup_tile) + Vector3(0, 0.3, 0)
+		look = (Board3D.tile_center(closeup_tile) if closeup_tile < 28 else Vector3.ZERO) + Vector3(0, 0.3, 0)
 		camera.position = look + Vector3(-1.2, 1.5, 2.2)
 		camera.look_at(look, Vector3.UP)
 		return
@@ -466,7 +466,8 @@ func _play(ev: Dictionary) -> void:
 			Fx.play("dice")
 			Fx.buzz(35, 0.4)
 			var land := Vector3(_focus.x * 0.6, 0.06, _focus.z * 0.6 + 0.4)
-			dice3d.throw(ev.dice, land)
+			if closeup_tile < 0:
+				dice3d.throw(ev.dice, land)
 			await hud.roll_dice(ev.dice)
 		"move":
 			board.clear_targets()
