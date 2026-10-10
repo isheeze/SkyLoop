@@ -439,3 +439,10 @@ static func _tint(n: Node, m: Material) -> void:
 		(n as MeshInstance3D).material_override = m
 	for c in n.get_children():
 		_tint(c, m)
+
+
+static func overlay(n: Node, m: Material) -> void:
+	if n is GeometryInstance3D:
+		(n as GeometryInstance3D).material_overlay = m
+	for c in n.get_children():
+		overlay(c, m)

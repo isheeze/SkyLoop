@@ -72,6 +72,12 @@ func handle(peer: int, msg: Dictionary) -> void:
 			p.name = _clean_name(str(msg.get("name", p.name)))
 			_save(token)
 			send(peer, {"t": "profile", "profile": public_profile(token)})
+		"set_avatar":
+			var av := str(msg.get("avatar", ""))
+			if Names.AVATARS.has(av):
+				_profile(token).avatar = av
+				_save(token)
+			send(peer, {"t": "profile", "profile": public_profile(token)})
 		"claim_daily":
 			_claim_daily(peer, token)
 		"spin":

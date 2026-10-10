@@ -534,3 +534,15 @@ func _update_life(delta: float) -> void:
 		else:
 			var a: float = l.t * TAU
 			n.position = Vector3(cos(a) * l.lane, l.h + sin(_time * 0.8 + l.lane) * 0.15, sin(a) * l.lane)
+
+
+## Repaints a player's pawn (equipped cosmetic skin).
+func tint_token(pi: int, color: Color) -> void:
+	if pi < 0 or pi >= _tokens.size():
+		return
+	var old: Node3D = _tokens[pi]
+	var t := Models.token_v2(color)
+	t.position = old.position
+	add_child(t)
+	old.queue_free()
+	_tokens[pi] = t

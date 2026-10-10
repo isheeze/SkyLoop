@@ -35,3 +35,9 @@ textures/vram_compression/import_etc2_astc=true
 [autoload]
 
 Fx="*res://ui/fx.gd"
+Net="*res://net/net.gd"
+
+[skyloop]
+
+; Production game server. Empty means the game runs its service inside the app.
+server_url=""

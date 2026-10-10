@@ -1,32 +1,34 @@
 extends Node3D
-## Main scene: sunset lighting, camera, the 3D board, the title menu and the HUD, plus the
-## game loop that plays engine events as animations and routes decisions to the player or
-## the bots.
+## Main scene: the painted sky, the floating island, the camera, the lobby and the HUD. Every
+## match is played through the game service (Net autoload): the service decides, this scene
+## animates what happened and sends the player's choices back.
 ##
-## Self-test flags (after `--`): --menu-shot PATH (screenshot the title screen),
-## --auto (bots play every seat), --seed N,
-## --shot PATH --shot-after N (save a screenshot at the human's first decision after N
-## decisions, or at the end of the game, then quit), --tile N (open a tile card for the shot).
+## Self-test flags (after `--`): --auto (practice match, bots play my seat too, fast),
+## --shot PATH --shot-after N (screenshot at my Nth decision, or the results with --auto),
+## --menu-shot PATH, --page-shot NAME:PATH (lobby page or popup), --closeup TILE, --clean.
 
 const Board = preload("res://core/board.gd")
 const Game = preload("res://core/game.gd")
 const Bot = preload("res://core/bot.gd")
+const Economy = preload("res://core/economy.gd")
 const Board3D = preload("res://game3d/board3d.gd")
 const Hud = preload("res://ui/hud.gd")
-const Menu = preload("res://ui/menu.gd")
+const Lobby = preload("res://ui/lobby.gd")
+const Modals = preload("res://ui/modals.gd")
 const Dice3D = preload("res://game3d/dice3d.gd")
 
-const SAVE_PATH := "user://match.save"
-const PLAYER_COLORS := [Color("ffc857"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
+const PLAYER_COLORS := [Color("ffc23d"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
 const CAM_OFFSET := Vector3(0, 6.4, 6.1)
 const CAM_LOOK := Vector3(0, 0, 0.6)
 
 var g
-var personas: Array = []
+var me := 0  # my seat in the current match
+var meta: Array = []  # per seat {name, avatar, level, country}
 var bot_rng := RandomNumberGenerator.new()
 var board: Node3D
 var hud: Control
-var menu: Control
+var lobby: Control
+var modals: Control
 var camera: Camera3D
 var dice3d: Node3D
 var _sky: TextureRect
@@ -34,32 +36,37 @@ var _shake := 0.0  # camera shake strength, decays to 0
 var _punch := 0.0  # camera push-in for big moments, decays to 0
 
 var auto := false
-var seed_arg := -1
 var shot_path := ""
-var shot_after := 40
+var shot_after := 1
 var shot_tile := -1
+var menu_shot := ""
+var page_shot := ""
+var closeup_tile := -1
+var queue_tier := 0  # with --auto: join this table's queue instead of practice
 var decisions := 0
-var _pump_session := -1
 var _focus := Vector3.ZERO
 var _focus_target := Vector3.ZERO
 var _orbit := false
 var _orbit_angle := 0.0
-var _session := 0
-var menu_shot := ""
-var resume_shot := ""
-var closeup_tile := -1
-var showcase := false
-var juice_shot := ""
+
+var _in_match := false
+var _room := -1
+var _tier := 1
+var _updates: Array = []
+var _playing := false
+var _pending := {}
+var _ended := {}
+var _deadline_seat := -1
+var _deadline_secs := 20.0
 
 
 func _ready() -> void:
+	bot_rng.randomize()
 	var args := OS.get_cmdline_user_args()
 	for i in args.size():
 		match args[i]:
 			"--auto":
 				auto = true
-			"--seed":
-				seed_arg = int(args[i + 1])
 			"--shot":
 				shot_path = args[i + 1]
 			"--shot-after":
@@ -68,63 +75,72 @@ func _ready() -> void:
 				shot_tile = int(args[i + 1])
 			"--menu-shot":
 				menu_shot = args[i + 1]
-			"--showcase":
-				showcase = true
-			"--juice-shot":
-				juice_shot = args[i + 1]
+			"--page-shot":
+				page_shot = args[i + 1]
 			"--closeup":
 				closeup_tile = int(args[i + 1])
-			"--resume-shot":
-				resume_shot = args[i + 1]
+			"--queue":
+				queue_tier = int(args[i + 1])
 	_build_world()
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
 	layer.add_child(hud)
 	hud.chosen.connect(_on_chosen)
-	hud.quit_requested.connect(_show_menu)
-	menu = Menu.new()
-	layer.add_child(menu)
-	menu.setup(hud)
-	menu.start.connect(_on_start)
-	menu.resume.connect(_on_resume)
+	hud.quit_requested.connect(_on_leave)
+	hud.visible = false
+	lobby = Lobby.new()
+	layer.add_child(lobby)
+	modals = Modals.new()
+	layer.add_child(modals)
+	modals.setup(lobby)
+	lobby.setup(modals)
+	lobby.play.connect(_on_play)
+	lobby.practice.connect(_on_practice)
+	modals.results_closed.connect(_on_results_closed)
+	modals.matchmaking_cancelled.connect(func() -> void: pass)
+	Net.connected.connect(_on_net_ready)
+	Net.message.connect(_on_net_message)
+	_demo_board()
+	lobby.visible = true
+	_orbit = true
+	Net.start()
 	if auto or shot_path != "":
 		if auto:
 			Engine.time_scale = 4.0
-		menu.visible = false
-		_new_game("", Board.ROUNDS)
-	else:
-		_show_menu()
-		if resume_shot != "":
-			_on_start("shark", 8)
-			while g.pending.player != 0 or hud._actions.get_child_count() == 0:
-				await get_tree().create_timer(0.2).timeout
-			var before: int = g.players[0].cash
-			_save_match()
-			_show_menu()
-			await get_tree().create_timer(0.5).timeout
-			_on_resume()
-			await get_tree().create_timer(1.5).timeout
-			print("RESUME cash before=%d after=%d tycoon=%s" % [before, g.players[0].cash, g.players[0].tycoon])
-			shot_path = resume_shot
-			await _save_shot()
-		if juice_shot != "":
-			menu.visible = false
-			hud.visible = true
-			_orbit = false
-			_new_game("shark", 8)
-			await get_tree().create_timer(2.0).timeout
-			hud.callout("JACKPOT!", Color("ffc23d"))
-			board.confetti(Board3D.tile_center(2), 110)
-			board.coin_flight(Board3D.tile_center(0), board.token_position(1), 12)
-			_punch = 1.0
-			await get_tree().create_timer(0.45).timeout
-			shot_path = juice_shot
-			await _save_shot()
-		if menu_shot != "":
-			await get_tree().create_timer(1.5).timeout
+		await Net.connected
+		lobby.visible = false
+		if queue_tier > 0:
+			_on_play(queue_tier)
+		else:
+			Net.send({"t": "practice"})
+	elif menu_shot != "" or page_shot != "":
+		await Net.connected
+		await get_tree().create_timer(1.2).timeout
+		if page_shot != "":
+			var parts := page_shot.split(":", true, 1)
+			_show_page_for_shot(parts[0])
+			await get_tree().create_timer(1.0).timeout
+			shot_path = parts[1]
+		else:
 			shot_path = menu_shot
-			await _save_shot()
+		await _save_shot()
+
+
+func _show_page_for_shot(name: String) -> void:
+	match name:
+		"daily":
+			modals.daily(Net.profile)
+		"spin":
+			modals.spin(Net.profile)
+		"matchmaking":
+			modals.matchmaking(2, Net.profile)
+		"reward":
+			modals.reward(300, 5, "Daily reward!")
+		"levelup":
+			modals.level_up(3)
+		_:
+			lobby.open_page(name)
 
 
 func _build_world() -> void:
@@ -211,69 +227,6 @@ func _process(delta: float) -> void:
 	_place_camera()
 
 
-## Title screen: a bot-only match is fast-forwarded so the city has buildings, then the
-## camera circles it.
-func _show_menu() -> void:
-	_session += 1
-	var cfg := {"seed": randi(), "players": []}
-	personas = []
-	for i in 4:
-		cfg.players.append({"name": "Bot", "tycoon": Board.TYCOONS.keys()[i], "bot": true})
-		personas.append(Bot.PERSONAS.values()[i % 3])
-	g = Game.new(cfg)
-	while not g.over and g.round_no < 8:
-		g.submit(Bot.decide(g, personas[g.pending.player], bot_rng))
-	g.events.clear()
-	board.setup(g, PLAYER_COLORS)
-	hud.visible = false
-	menu.visible = true
-	menu.set_can_resume(FileAccess.file_exists(SAVE_PATH))
-	_orbit = true
-
-
-func _on_resume() -> void:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	var data = f.get_var() if f != null else null
-	var restored = Game.from_dict(data.game) if data is Dictionary and data.has("game") else null
-	if restored == null:
-		DirAccess.remove_absolute(SAVE_PATH)
-		menu.set_can_resume(false)
-		return
-	_session += 1
-	_orbit = false
-	menu.visible = false
-	hud.visible = true
-	g = restored
-	personas = data.personas
-	bot_rng.seed = data.bot_rng[0]
-	bot_rng.state = data.bot_rng[1]
-	board.setup(g, PLAYER_COLORS)
-	hud.setup(g, PLAYER_COLORS, 0)
-	hud.show_headline(g.headline, g.next_headline)
-	_focus_on(board.token_position(g.turn))
-	if g.pending.get("type", "") == "move":
-		await hud.roll_dice(g.dice)
-	_pump()
-
-
-## Autosave, taken whenever the game waits on the human, so a match survives the app being
-## closed or killed.
-func _save_match() -> void:
-	if g == null or g.over or auto or shot_path != "":
-		return
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f == null:
-		return
-	f.store_var({"game": g.to_dict(), "personas": personas, "bot_rng": [bot_rng.seed, bot_rng.state]})
-
-
-func _on_start(tycoon: String, rounds: int) -> void:
-	_orbit = false
-	menu.visible = false
-	hud.visible = true
-	_new_game(tycoon, rounds)
-
-
 func _parallax() -> void:
 	if _sky == null:
 		return
@@ -306,46 +259,8 @@ func _focus_on(world: Vector3) -> void:
 	_focus_target = Vector3(clampf(world.x * 0.6, -1.8, 1.8), 0, clampf(world.z * 0.45, -1.3, 1.3))
 
 
-func _new_game(my_tycoon: String, rounds: int) -> void:
-	_session += 1
-	var rng := RandomNumberGenerator.new()
-	if seed_arg >= 0:
-		rng.seed = seed_arg
-	else:
-		rng.randomize()
-	bot_rng.seed = rng.randi()
-	var tycoons: Array = Board.TYCOONS.keys()
-	if my_tycoon != "":
-		tycoons.erase(my_tycoon)
-	var persona_keys: Array = Bot.PERSONAS.keys()
-	var names := ["You", "Vera", "Marco", "Juno"]
-	var cfg := {"seed": rng.randi(), "rounds": rounds, "players": []}
-	personas = []
-	decisions = 0
-	for i in 4:
-		var ty: String = my_tycoon if i == 0 and my_tycoon != "" \
-			else tycoons.pop_at(rng.randi_range(0, tycoons.size() - 1))
-		var pe: String = persona_keys[rng.randi_range(0, persona_keys.size() - 1)]
-		personas.append(Bot.PERSONAS[pe])
-		cfg.players.append({"name": names[i], "tycoon": ty, "bot": i != 0})
-	g = Game.new(cfg)
-	board.setup(g, PLAYER_COLORS)
-	hud.setup(g, PLAYER_COLORS, 0)
-	if showcase:
-		# Review staging: the whole Docklands district built up, landmark included.
-		for k in 3:
-			var t: int = Board.district_tiles(0)[k]
-			g.owner_of[t] = 0
-			g.level_of[t] = [3, 4, 5][k]
-		board.setup(g, PLAYER_COLORS)
-		board.set_tags_visible(false)
-	# Starting deeds are already on the board; skip their announcements.
-	g.events = g.events.filter(func(ev: Dictionary) -> bool: return ev.t != "own")
-	_pump()
-
-
 func _show_targets(pd: Dictionary) -> void:
-	if showcase or (pd.type != "move" and pd.type != "metro"):
+	if pd.type != "move" and pd.type != "metro":
 		return
 	var list := []
 	for s: int in pd.options:
@@ -357,64 +272,6 @@ func _show_targets(pd: Dictionary) -> void:
 	for pv: Dictionary in list:
 		mid += Board3D.tile_center(pv.tile)
 	_focus_on(mid / list.size())
-
-
-func _on_chosen(choice: Dictionary) -> void:
-	board.clear_targets()
-	if not g.submit(choice):
-		push_warning("Rejected choice %s" % choice)
-	decisions += 1
-	_pump()
-
-
-func _pump() -> void:
-	# One pump loop per session; a loop from an abandoned game exits on its own.
-	if _pump_session == _session:
-		return
-	_pump_session = _session
-	var session := _session
-	while true:
-		await _play_events()
-		if session != _session:
-			break
-		if g.over:
-			DirAccess.remove_absolute(SAVE_PATH)
-			Fx.play("win" if g.winner == 0 else "lose")
-			if g.winner == 0:
-				hud.confetti_2d()
-				Fx.play("celebrate", -2.0)
-			Fx.buzz(200 if g.winner == 0 else 80, 0.8)
-			hud.show_results(_show_menu)
-			if shot_path != "":
-				await get_tree().create_timer(0.6 * Engine.time_scale).timeout
-				await _save_shot()
-			break
-		var pd: Dictionary = g.pending
-		var who: int = pd.player
-		if shot_path != "" and decisions >= shot_after and who == 0:
-			Engine.time_scale = 1.0
-			hud.show_decision(pd)
-			_show_targets(pd)
-			if shot_tile >= 0:
-				hud.show_tile(shot_tile)
-			await get_tree().create_timer(0.8).timeout
-			await _save_shot()
-			break
-		if auto or g.players[who].is_bot:
-			hud.waiting(who)
-			if not auto:
-				await get_tree().create_timer(0.45).timeout
-			if session != _session:
-				break
-			g.submit(Bot.decide(g, personas[who], bot_rng))
-			decisions += 1
-			continue
-		hud.show_decision(pd)
-		_show_targets(pd)
-		_save_match()
-		break
-	if _pump_session == session:
-		_pump_session = -1
 
 
 func _save_shot() -> void:
@@ -432,23 +289,243 @@ func _save_shot() -> void:
 	get_tree().quit()
 
 
+func _on_net_ready() -> void:
+	if auto or shot_path != "":
+		return
+	if not _in_match:
+		_show_lobby()
+
+
+func _show_lobby() -> void:
+	_in_match = false
+	_room = -1
+	_demo_board()
+	hud.visible = false
+	lobby.visible = true
+	lobby.open_page("home")
+	_orbit = true
+
+
+## A bot match fast-forwarded to mid-game, so the lobby's island has a city on it.
+func _demo_board() -> void:
+	var cfg := {"seed": randi(), "players": []}
+	for i in 4:
+		cfg.players.append({"name": "Demo", "tycoon": Board.TYCOONS.keys()[i], "bot": true})
+	var demo = Game.new(cfg)
+	var rng := RandomNumberGenerator.new()
+	while not demo.over and demo.round_no < 8:
+		demo.submit(Bot.decide(demo, Bot.PERSONAS.values()[demo.pending.player % 3], rng))
+	demo.events.clear()
+	g = demo
+	board.setup(g, PLAYER_COLORS)
+
+
+func _on_play(tier: int) -> void:
+	modals.matchmaking(tier, Net.profile)
+	Net.send({"t": "queue", "tier": tier})
+
+
+func _on_practice() -> void:
+	modals.matchmaking(0, Net.profile)
+	Net.send({"t": "practice"})
+
+
+func _on_net_message(msg: Dictionary) -> void:
+	match msg.get("t", ""):
+		"match_start":
+			_start_match(msg)
+		"update":
+			if int(msg.room) == _room:
+				_updates.append(msg)
+				_drain_updates()
+		"deadline":
+			if _in_match:
+				_deadline_seat = int(msg.get("seat", -1))
+				_deadline_secs = float(msg.seconds)
+				if not _playing:
+					hud.set_deadline(_deadline_seat, _deadline_secs)
+		"chat":
+			if _in_match:
+				hud.chat_bubble(int(msg.seat), str(msg.text))
+		"match_end":
+			_ended = msg
+			_drain_updates()
+
+
+func _start_match(msg: Dictionary) -> void:
+	_in_match = true
+	_room = int(msg.room)
+	_tier = int(msg.tier)
+	me = int(msg.seat)
+	meta = msg.players
+	_updates.clear()
+	_ended = {}
+	_orbit = false
+	g = Game.from_dict(msg.snapshot)
+	if g == null:
+		push_error("bad snapshot")
+		return
+	board.setup(g, PLAYER_COLORS)
+	_apply_cosmetics()
+	hud.setup(g, PLAYER_COLORS, me, meta)
+	hud.show_headline(g.headline, g.next_headline)
+	if not lobby.visible:
+		pass
+	lobby.visible = false
+	hud.visible = true
+	await modals.matchmaking_found(meta, me, PLAYER_COLORS)
+	_coach("welcome")
+	_updates.push_front({"room": _room, "snapshot": msg.snapshot,
+		"events": (msg.events as Array).filter(func(ev: Dictionary) -> bool: return ev.t != "own"), "pending": msg.pending})
+	_drain_updates()
+
+
+## Uses the player's equipped pawn and dice skins.
+func _apply_cosmetics() -> void:
+	var eq: Dictionary = Net.profile.get("equipped", {})
+	var token_id := str(eq.get("token", ""))
+	if token_id != "":
+		var it := Economy.shop_item(token_id)
+		if not it.is_empty():
+			board.tint_token(me, Color(it.color))
+	var dice_id := str(eq.get("dice", ""))
+	dice3d.skin = Color(Economy.shop_item(dice_id).color) if dice_id != "" else Color.WHITE
+
+
+## Plays queued server updates one at a time; acks each so the server keeps everyone in step.
+func _drain_updates() -> void:
+	if _playing:
+		return
+	_playing = true
+	while not _updates.is_empty():
+		var u: Dictionary = _updates.pop_front()
+		hud.clear_deadline()
+		board.clear_targets()
+		var next = Game.from_dict(u.snapshot)
+		if next != null:
+			g = next
+			board.g = g
+			hud.g = g
+		for ev: Dictionary in u.events:
+			await _play(ev)
+		hud.refresh()
+		board.refresh_labels()
+		Net.send({"t": "ack"})
+		_pending = u.pending
+		if _updates.is_empty():
+			_offer_turn()
+	_playing = false
+	if not _ended.is_empty():
+		_finish_match()
+
+
+func _offer_turn() -> void:
+	var pd := _pending
+	if pd.is_empty() or g.over:
+		return
+	var who := int(pd.player)
+	if who != me:
+		hud.waiting(who)
+		if _deadline_seat == who:
+			hud.set_deadline(who, _deadline_secs)
+		return
+	decisions += 1
+	if auto:
+		var choice := Bot.decide(g, Bot.PERSONAS.builder, bot_rng)
+		_send_choice.call_deferred(choice)
+		return
+	if shot_path != "" and decisions >= shot_after:
+		Engine.time_scale = 1.0
+		hud.show_decision(pd)
+		_show_targets(pd)
+		if shot_tile >= 0:
+			hud.show_tile(shot_tile)
+		await get_tree().create_timer(0.8).timeout
+		await _save_shot()
+		return
+	hud.show_decision(pd)
+	_show_targets(pd)
+	_coach(pd.type)
+	hud.set_deadline(me, 20.0)
+
+
+func _send_choice(choice: Dictionary) -> void:
+	board.clear_targets()
+	hud.clear_deadline()
+	_pending = {}
+	Net.send({"t": "choice", "choice": choice})
+
+
+func _on_chosen(choice: Dictionary) -> void:
+	_send_choice(choice)
+
+
+func _finish_match() -> void:
+	var msg := _ended
+	_ended = {}
+	_in_match = false
+	hud.clear_deadline()
+	board.clear_targets()
+	if int(msg.place) == 0:
+		hud.confetti_2d()
+	Fx.buzz(200 if int(msg.place) == 0 else 80, 0.8)
+	if shot_path != "" and auto:
+		modals.results(msg, meta, me, PLAYER_COLORS, msg.get("profile", Net.profile))
+		await get_tree().create_timer(1.2).timeout
+		await _save_shot()
+		return
+	modals.results(msg, meta, me, PLAYER_COLORS, msg.get("profile", Net.profile))
+
+
+func _on_results_closed(again: bool) -> void:
+	_show_lobby()
+	if again:
+		if _tier == 0:
+			_on_practice()
+		else:
+			_on_play(_tier)
+
+
+func _on_leave() -> void:
+	Net.send({"t": "leave"})
+	_updates.clear()
+	_show_lobby()
+
+
+# ---------------------------------------------------------------- first-time tips
+
+const TIPS := {
+	"welcome": "Welcome to Skyloop! Buy tiles, build them up and collect rent. Richest after the last round wins.",
+	"move": "Tap a glowing tile to move there. The total is free; one die costs a steer token.",
+	"buy": "Buy it, or send it to a sealed auction where everyone bids in secret.",
+	"bid": "Sealed bid: nobody sees your offer. Highest bid wins the tile.",
+	"manage": "Build on your tiles to raise their rent. Own all three in a district for big bonuses.",
+	"takeover": "You can buy out a rival's tile for double its value, buildings included.",
+}
+
+
+func _coach(kind: String) -> void:
+	if not TIPS.has(kind) or auto or shot_path != "":
+		return
+	var cfg := ConfigFile.new()
+	cfg.load("user://tips.cfg")
+	if cfg.get_value("seen", kind, false):
+		return
+	cfg.set_value("seen", kind, true)
+	cfg.save("user://tips.cfg")
+	hud.coach(TIPS[kind])
+
+
 # ---------------------------------------------------------------- event playback
-
-func _play_events() -> void:
-	var session := _session
-	while not g.events.is_empty() and session == _session:
-		var ev: Dictionary = g.events.pop_front()
-		await _play(ev)
-	hud.refresh()
-	board.refresh_labels()
-
 
 func _wait(seconds: float) -> void:
 	await get_tree().create_timer(seconds).timeout
 
 
 func _name(pi: int) -> String:
-	return "You" if pi == 0 else g.players[pi].name
+	if pi == me:
+		return "You"
+	return str(meta[pi].name) if pi >= 0 and pi < meta.size() else str(g.players[pi].name)
 
 
 func _play(ev: Dictionary) -> void:
@@ -460,12 +537,12 @@ func _play(ev: Dictionary) -> void:
 			await _wait(0.5)
 		"turn":
 			hud.refresh()
-			if ev.p == 0 and not auto:
+			if ev.p == me and not auto:
 				Fx.play("your_turn")
 				Fx.buzz(25)
 			_focus_on(board.token_position(ev.p))
 		"roll":
-			if ev.p == 0 and not auto and shot_path == "":
+			if ev.p == me and not auto and shot_path == "":
 				await hud.wait_roll()
 			Fx.play("dice")
 			Fx.buzz(35, 0.4)
@@ -488,14 +565,14 @@ func _play(ev: Dictionary) -> void:
 				board.float_text(board.token_position(ev.to), "+$%d" % amount, Color("7dffb0"))
 			hud.refresh()
 			_coins_for(ev)
-			if ev.why == "rent" and ev.from == 0 and amount >= 150:
+			if ev.why == "rent" and ev.from == me and amount >= 150:
 				_shake = 0.6
 				hud.callout("-$%d" % amount, Color("ff5d73"), 104)
-			elif ev.why == "rent" and ev.to == 0 and amount >= 100:
+			elif ev.why == "rent" and ev.to == me and amount >= 100:
 				hud.callout("+$%d" % amount, Color("ffc23d"), 104)
-			if ev.to == 0 or ev.from == 0:
-				Fx.play("coin" if ev.to == 0 else "pay")
-				if ev.from == 0 and amount >= 50:
+			if ev.to == me or ev.from == me:
+				Fx.play("coin" if ev.to == me else "pay")
+				if ev.from == me and amount >= 50:
 					Fx.buzz(45, 0.6)
 			match ev.why:
 				"rent":
@@ -535,7 +612,7 @@ func _play(ev: Dictionary) -> void:
 				board.confetti(Board3D.tile_center(ev.tile), 110)
 				hud.callout("LANDMARK!", (PLAYER_COLORS[ev.p] as Color).lightened(0.1))
 				await _wait(1.0)
-			elif ev.p == 0:
+			elif ev.p == me:
 				Fx.play("levelup", -4.0)
 				board.float_text(Board3D.tile_center(ev.tile) + Vector3(0, 0.5, 0), "LEVEL %d" % ev.level,
 					Color("ffc23d"))
@@ -555,7 +632,7 @@ func _play(ev: Dictionary) -> void:
 				hud.toast("No bids. %s stays on the market." % Board.TILES[ev.tile].name)
 		"bailout":
 			Fx.play("bailout")
-			if ev.p == 0:
+			if ev.p == me:
 				Fx.buzz(120, 0.9)
 			hud.toast("%s is bailed out — $%d in debt" % [_name(ev.p), ev.amount], Color("ff7a8a"))
 		"frozen":
@@ -567,7 +644,7 @@ func _play(ev: Dictionary) -> void:
 				Color("ffc857"))
 			await _wait(0.4)
 		"perk":
-			if ev.p != 0:
+			if ev.p != me:
 				hud.toast("%s takes a %s" % [_name(ev.p), ev.perk])
 
 
@@ -588,10 +665,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	var hit := origin + dir * ((Board3D.TILE_TOP - origin.y) / dir.y)
 	var tile := Board3D.tile_at(hit)
 	# Tapping a highlighted destination makes that move.
-	var pd: Dictionary = g.pending if g != null else {}
-	if tile >= 0 and not menu.visible and pd.get("player", -1) == 0 and (pd.type == "move" or pd.type == "metro"):
+	var pd: Dictionary = _pending
+	if tile >= 0 and _in_match and int(pd.get("player", -1)) == me and (pd.type == "move" or pd.type == "metro"):
 		for s: int in pd.options:
-			if (g.players[0].pos + s) % Board.TILE_COUNT == tile:
+			if (g.players[me].pos + s) % Board.TILE_COUNT == tile:
 				hud.hide_tile()
 				hud._emit({"steps": s})
 				return
@@ -602,15 +679,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	# Android back button: from a game, open the pause menu; from the title screen, quit.
-	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
-		if menu != null and not menu.visible:
-			_save_match()
+	# Android back button: in a match, the menu; in the lobby, home then quit.
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		if menu.visible:
-			get_tree().quit()
-		else:
+		if _in_match:
 			hud.toggle_pause()
+		elif lobby._page != "home":
+			lobby.open_page("home")
+		else:
+			get_tree().quit()
 
 
 ## Flies coins along a payment: payer to payee, or from the paying tile for bank money.

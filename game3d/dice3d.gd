@@ -9,6 +9,9 @@ const FACE_AXIS := {1: Vector3.UP, 6: Vector3.DOWN, 2: Vector3.BACK, 5: Vector3.
 
 const SIZE := 2.2
 
+## Tint for an equipped dice skin; white means the standard dice.
+var skin := Color.WHITE
+
 var _dice: Array = []
 
 
@@ -18,6 +21,12 @@ func throw(values: Array, at: Vector3) -> void:
 	for i in values.size():
 		var d: Node3D = Models.instance("res://art/models/die.glb")
 		add_child(d)
+		if skin != Color.WHITE:
+			var over := StandardMaterial3D.new()
+			over.albedo_color = Color(skin.r, skin.g, skin.b, 0.55)
+			over.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			over.roughness = 0.3
+			Models.overlay(d, over)
 		_dice.append(d)
 		var side := (i - (values.size() - 1) / 2.0) * 0.55
 		var land := at + Vector3(side, 0.22, randf_range(-0.08, 0.08))

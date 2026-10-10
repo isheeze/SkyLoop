@@ -7,7 +7,8 @@ signal chosen(choice: Dictionary)
 signal quit_requested
 
 const Board = preload("res://core/board.gd")
-const FONT_FILE = preload("res://art/fonts/Outfit.ttf")
+const Kit = preload("res://ui/kit.gd")
+const QUICK_CHAT := ["Nice move!", "Oops!", "Hurry up!", "Thanks!", "Good game!", "Wow!", "My street!", "Lucky!"]
 
 const ACCENT := Color("ffc23d")
 const TEXT := Color("1d2340")
@@ -69,10 +70,15 @@ func _ready() -> void:
 	theme = _make_theme()
 
 
-func setup(game, player_colors: Array, human_index: int) -> void:
+var meta: Array = []  # per seat {name, avatar, level, country}
+var _deadline_tw: Tween
+
+
+func setup(game, player_colors: Array, human_index: int, players_meta: Array = []) -> void:
 	g = game
 	colors = player_colors
 	human = human_index
+	meta = players_meta
 	for c in get_children():
 		c.queue_free()
 	_chips.clear()
@@ -101,13 +107,9 @@ func setup(game, player_colors: Array, human_index: int) -> void:
 
 # ---------------------------------------------------------------- theme
 
+## Fredoka for display weights, Nunito for body text (the kit's type system).
 func font(weight: int) -> FontVariation:
-	if not _fonts.has(weight):
-		var f := FontVariation.new()
-		f.base_font = FONT_FILE
-		f.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): weight}
-		_fonts[weight] = f
-	return _fonts[weight]
+	return Kit.font(true, mini(weight, 700)) if weight >= 600 else Kit.font(false, maxi(weight, 600) + 100)
 
 
 static func panel_box(bg: Color, radius := 30, lip := Color(0, 0, 0, 0)) -> StyleBoxFlat:
@@ -250,10 +252,18 @@ func _build_top() -> void:
 	tline.add_child(_headline_title)
 	_next_label = _label("", 20, 500, DIM)
 	tline.add_child(_next_label)
+	var chat := Button.new()
+	chat.icon = load("res://art/icons/chat-circle-dots.svg")
+	chat.add_theme_color_override("icon_normal_color", TEXT)
+	chat.add_theme_constant_override("icon_max_width", 40)
+	chat.custom_minimum_size = Vector2(76, 76)
+	chat.pressed.connect(_open_chat)
+	hrow.add_child(chat)
 	var pause := Button.new()
-	pause.text = "II"
+	pause.icon = load("res://art/icons/pause.svg")
+	pause.add_theme_color_override("icon_normal_color", TEXT)
+	pause.add_theme_constant_override("icon_max_width", 34)
 	pause.custom_minimum_size = Vector2(76, 76)
-	pause.add_theme_font_override("font", font(900))
 	pause.pressed.connect(toggle_pause)
 	hrow.add_child(pause)
 	_headline_text = _label("", 23, 400, TEXT)
@@ -272,7 +282,8 @@ func _make_chip(pi: int) -> Dictionary:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
 	v.add_child(head)
-	head.add_child(portrait(p.tycoon, colors[pi], 52))
+	var av := str(meta[pi].avatar) if pi < meta.size() else ""
+	head.add_child(Kit.avatar(av, 54, colors[pi], 4) if av != "" else portrait(p.tycoon, colors[pi], 52))
 	var name_l := _label(_short_name(pi), 24, 600, TEXT)
 	name_l.clip_text = true
 	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -286,11 +297,22 @@ func _make_chip(pi: int) -> Dictionary:
 	foot.add_child(tycoon)
 	var info := _label("", 19, 500, DIM)
 	foot.add_child(info)
-	return {"panel": panel, "cash": cash, "info": info}
+	# Turn timer: a bar that drains under the active player's card.
+	var timer := Panel.new()
+	timer.custom_minimum_size = Vector2(0, 8)
+	var ts := StyleBoxFlat.new()
+	ts.bg_color = colors[pi]
+	ts.set_corner_radius_all(4)
+	timer.add_theme_stylebox_override("panel", ts)
+	timer.visible = false
+	v.add_child(timer)
+	return {"panel": panel, "cash": cash, "info": info, "timer": timer, "style": ts}
 
 
 func _short_name(pi: int) -> String:
-	return "You" if pi == human else g.players[pi].name
+	if pi == human:
+		return "You"
+	return str(meta[pi].name) if pi < meta.size() else g.players[pi].name
 
 
 func _build_toasts() -> void:
@@ -792,10 +814,9 @@ func toggle_pause() -> void:
 	if _pause != null:
 		_pause.queue_free()
 		_pause = null
-		get_tree().paused = false
 		return
+	# The match keeps running (other players are waiting), so this is a menu, not a pause.
 	Fx.play("click")
-	get_tree().paused = true
 	_pause = ColorRect.new()
 	(_pause as ColorRect).color = Color(0.1, 0.08, 0.25, 0.45)
 	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -811,10 +832,10 @@ func toggle_pause() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
 	card.add_child(v)
-	var title := _label("Paused", 52, 900)
+	var title := _label("Menu", 52, 900)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
-	var resume := _button("Resume", {}, true)
+	var resume := _button("Back to the game", {}, true)
 	resume.pressed.connect(toggle_pause)
 	v.add_child(resume)
 	var snd := _button("Sound: %s" % ("on" if Fx.sound else "off"), {})
@@ -829,7 +850,7 @@ func toggle_pause() -> void:
 		Fx.save_settings()
 		vib.text = "Vibration: %s" % ("on" if Fx.haptics else "off"))
 	v.add_child(vib)
-	var quit := _button("Quit to menu", {})
+	var quit := _button("Leave match", {})
 	quit.pressed.connect(func() -> void:
 		toggle_pause()
 		quit_requested.emit())
@@ -925,3 +946,118 @@ func confetti_2d() -> void:
 	add_child(p)
 	p.emitting = true
 	get_tree().create_timer(3.5).timeout.connect(p.queue_free)
+
+
+# ---------------------------------------------------------------- online: timers and chat
+
+## Drains the active player's timer bar over `seconds`.
+func set_deadline(seat: int, seconds: float) -> void:
+	clear_deadline()
+	if seat < 0 or seat >= _chips.size():
+		return
+	var chip: Dictionary = _chips[seat]
+	var bar: Panel = chip.timer
+	bar.visible = true
+	bar.custom_minimum_size.x = 0
+	bar.scale = Vector2.ONE
+	bar.pivot_offset = Vector2.ZERO
+	var st: StyleBoxFlat = chip.style
+	st.bg_color = colors[seat]
+	_deadline_tw = create_tween()
+	_deadline_tw.tween_property(bar, "scale:x", 0.0, seconds)
+	_deadline_tw.parallel().tween_property(st, "bg_color", Color("ff5d73"), seconds * 0.4).set_delay(seconds * 0.6)
+
+
+func clear_deadline() -> void:
+	if _deadline_tw != null and _deadline_tw.is_valid():
+		_deadline_tw.kill()
+	for chip: Dictionary in _chips:
+		chip.timer.visible = false
+
+
+func _open_chat() -> void:
+	Fx.play("click")
+	var veil := ColorRect.new()
+	veil.color = Color(0.12, 0.09, 0.28, 0.35)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(veil)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.add_child(center)
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(760, 0)
+	card.add_theme_stylebox_override("panel", panel_box(CARD, 40))
+	center.add_child(card)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	card.add_child(grid)
+	for t: String in QUICK_CHAT:
+		var b := _button(t, {})
+		b.custom_minimum_size = Vector2(340, 88)
+		b.pressed.connect(func() -> void:
+			Net.send({"t": "chat", "text": t})
+			veil.queue_free())
+		grid.add_child(b)
+	veil.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.pressed:
+			veil.queue_free())
+
+
+## A speech bubble under a player's card.
+func chat_bubble(seat: int, text: String) -> void:
+	if seat < 0 or seat >= _chips.size():
+		return
+	var chip: Dictionary = _chips[seat]
+	var bubble := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color.WHITE
+	sb.set_corner_radius_all(26)
+	sb.border_color = colors[seat]
+	sb.set_border_width_all(4)
+	sb.set_content_margin_all(14)
+	sb.shadow_color = Color(0.19, 0.12, 0.43, 0.25)
+	sb.shadow_size = 10
+	bubble.add_theme_stylebox_override("panel", sb)
+	bubble.add_child(_label(text, 26, 700, TEXT))
+	add_child(bubble)
+	var r: Rect2 = chip.panel.get_global_rect()
+	bubble.position = Vector2(clampf(r.position.x, 10, get_viewport_rect().size.x - 300), r.end.y + 10)
+	bubble.scale = Vector2(0.4, 0.4)
+	var tw := bubble.create_tween()
+	tw.tween_property(bubble, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK)
+	tw.tween_interval(2.2)
+	tw.tween_property(bubble, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(bubble.queue_free)
+	Fx.play("toast", -6.0)
+
+
+## A friendly first-time tip at the top of the board; tap or wait to dismiss.
+func coach(text: String) -> void:
+	var p := PanelContainer.new()
+	var sb := panel_box(Color("fff8e6"), 32, Color("f0c46a"))
+	sb.set_content_margin_all(20)
+	p.add_theme_stylebox_override("panel", sb)
+	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	p.offset_left = -470
+	p.offset_right = 470
+	p.offset_top = 330
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 16)
+	p.add_child(h)
+	h.add_child(Kit.icon3d("xp", 72))
+	var l := _label(text, 28, 700, TEXT)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(l)
+	add_child(p)
+	p.modulate.a = 0.0
+	var tw := p.create_tween()
+	tw.tween_property(p, "modulate:a", 1.0, 0.25)
+	tw.tween_interval(6.0)
+	tw.tween_property(p, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(p.queue_free)
+	p.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.pressed and is_instance_valid(p):
+			p.queue_free())
