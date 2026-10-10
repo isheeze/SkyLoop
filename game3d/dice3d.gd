@@ -28,7 +28,7 @@ func throw(values: Array, at: Vector3) -> void:
 		var spins := randf_range(2.0, 3.0) * TAU
 		d.position = start
 		d.basis = (Basis(axis, spins) * final).scaled(Vector3.ONE * SIZE)
-		var tw := create_tween()
+		var tw := d.create_tween()  # dies with the die if it is cleared mid-throw
 		tw.tween_method(func(t: float) -> void:
 			# Ballistic arc with two shrinking bounces, tumbling down onto the final face.
 			var p := start.lerp(land, minf(t * 1.25, 1.0))

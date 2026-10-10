@@ -18,8 +18,8 @@ const Dice3D = preload("res://game3d/dice3d.gd")
 
 const SAVE_PATH := "user://match.save"
 const PLAYER_COLORS := [Color("ffc857"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
-const CAM_OFFSET := Vector3(0, 8.6, 3.9)
-const CAM_LOOK := Vector3(0, 0, 0.35)
+const CAM_OFFSET := Vector3(0, 6.4, 6.1)
+const CAM_LOOK := Vector3(0, 0, 0.6)
 
 var g
 var personas: Array = []
@@ -29,6 +29,7 @@ var hud: Control
 var menu: Control
 var camera: Camera3D
 var dice3d: Node3D
+var _sky: TextureRect
 
 var auto := false
 var seed_arg := -1
@@ -109,50 +110,50 @@ func _ready() -> void:
 
 
 func _build_world() -> void:
+	# The painted sky is a 2D layer behind the 3D scene.
 	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	var sky := Sky.new()
-	var sm := ProceduralSkyMaterial.new()
-	sm.sky_top_color = Color("4466b8")
-	sm.sky_horizon_color = Color("ffc6a5")
-	sm.ground_horizon_color = Color("f2b7a6")
-	sm.ground_bottom_color = Color("8e8fc4")
-	sm.sun_angle_max = 20.0
-	sky.sky_material = sm
-	env.sky = sky
+	env.background_mode = Environment.BG_CANVAS
+	env.background_canvas_max_layer = -1
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("cbc4e8")
-	env.ambient_light_energy = 0.4
+	env.ambient_light_color = Color("fff0e6")
+	env.ambient_light_energy = 0.95
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure = 1.0
+	env.tonemap_exposure = 1.05
 	env.glow_enabled = true
-	env.glow_intensity = 0.3
-	env.glow_strength = 1.0
-	env.glow_bloom = 0.04
-	env.glow_hdr_threshold = 1.6
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	env.fog_enabled = false
-	env.fog_light_color = Color("f0c4b4")
-	env.fog_density = 0.004
+	env.glow_intensity = 0.25
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.4
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.2
-	env.adjustment_contrast = 1.1
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.02
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
+	var sky_layer := CanvasLayer.new()
+	sky_layer.layer = -1
+	add_child(sky_layer)
+	_sky = TextureRect.new()
+	_sky.texture = load("res://art/ui/sky_bg.jpg")
+	_sky.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_sky.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_sky.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sky_layer.add_child(_sky)
+
+	# Soft late-afternoon sun: warm, low contrast, light shadows.
 	var key := DirectionalLight3D.new()
-	key.light_color = Color("ffd2a6")
-	key.light_energy = 2.0
-	key.rotation_degrees = Vector3(-36, -38, 0)
+	key.light_color = Color("ffe2c4")
+	key.light_energy = 1.25
+	key.rotation_degrees = Vector3(-48, -32, 0)
 	key.shadow_enabled = true
-	key.shadow_blur = 1.6
-	key.directional_shadow_max_distance = 26.0
+	key.shadow_opacity = 0.55
+	key.shadow_blur = 2.5
+	key.directional_shadow_max_distance = 24.0
 	add_child(key)
 	var fill := DirectionalLight3D.new()
-	fill.light_color = Color("9db4ff")
-	fill.light_energy = 0.55
-	fill.rotation_degrees = Vector3(-55, 140, 0)
+	fill.light_color = Color("c9d6ff")
+	fill.light_energy = 0.45
+	fill.rotation_degrees = Vector3(-35, 150, 0)
 	add_child(fill)
 
 	board = Board3D.new()
@@ -179,9 +180,9 @@ func _build_world() -> void:
 func _process(delta: float) -> void:
 	if _orbit:
 		_orbit_angle += delta * 0.07
-		var r := Vector3(0, 11.5, 9.5).rotated(Vector3.UP, _orbit_angle)
+		var r := Vector3(0, 4.4, 9.6).rotated(Vector3.UP, _orbit_angle)
 		camera.position = r
-		camera.look_at(Vector3(0, -1.2, 0), Vector3.UP)
+		camera.look_at(Vector3(0, -1.6, 0), Vector3.UP)
 		return
 	_focus = _focus.lerp(_focus_target, 1.0 - exp(-3.0 * delta / maxf(Engine.time_scale, 1.0)))
 	_place_camera()
@@ -250,7 +251,17 @@ func _on_start(tycoon: String, rounds: int) -> void:
 	_new_game(tycoon, rounds)
 
 
+func _parallax() -> void:
+	if _sky == null:
+		return
+	var vp := get_viewport().get_visible_rect().size
+	_sky.pivot_offset = vp / 2
+	_sky.scale = Vector2.ONE * 1.12
+	_sky.position = Vector2(-_focus.x * 14.0 - sin(_orbit_angle) * 40.0, -_focus.z * 10.0)
+
+
 func _place_camera() -> void:
+	_parallax()
 	# Taller phones have spare height, so come in closer and let the board fill it.
 	var vp := get_viewport().get_visible_rect().size
 	var aspect := vp.y / maxf(vp.x, 1.0)

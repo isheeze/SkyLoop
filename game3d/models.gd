@@ -139,7 +139,9 @@ static func district_roof(d: int) -> Color:
 ## kit model when one exists (art/models/d<district>_l<level>.glb, already at final size and
 ## tagged "prescaled"); otherwise falls back to the procedural placeholder.
 static func building(d: int, level: int, seed: int) -> Node3D:
-	var path := "res://art/models/d%d_l%d.glb" % [d, level]
+	var path := "res://art/models/d%d_l%d_v%d.glb" % [d, level, seed % 3]
+	if level == 5:
+		path = "res://art/models/d%d_l5.glb" % d
 	if level > 0 and ResourceLoader.exists(path):
 		var scene: PackedScene = load(path)
 		var inst: Node3D = scene.instantiate()
@@ -380,3 +382,29 @@ static func cloud(rng: RandomNumberGenerator) -> Node3D:
 		var s := sphere(root, r, at, m, Vector3(1.0, 0.75, 1.0))
 		s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return root
+
+
+## The Blender pawn, tinted with the player's colour, with a glowing ring under it.
+static func token_v2(color: Color) -> Node3D:
+	var root := Node3D.new()
+	var scene: PackedScene = load("res://art/models/token.glb")
+	var pawn: Node3D = scene.instantiate()
+	pawn.scale = Vector3.ONE * 0.95
+	root.add_child(pawn)
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.roughness = 0.25
+	m.metallic = 0.2
+	m.rim_enabled = true
+	m.rim = 0.5
+	_tint(pawn, m)
+	var ring := torus(root, 0.13, 0.16, Vector3(0, 0.005, 0), mat(color.lightened(0.2), 0.4, 0.0, 1.5))
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return root
+
+
+static func _tint(n: Node, m: Material) -> void:
+	if n is MeshInstance3D:
+		(n as MeshInstance3D).material_override = m
+	for c in n.get_children():
+		_tint(c, m)

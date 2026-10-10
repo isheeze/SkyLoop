@@ -31,6 +31,8 @@ for i, f in enumerate(files):
     for o in bpy.context.selected_objects:
         if o.parent is None:
             o.location.x += x0 + i * spacing
+            o.rotation_mode = "XYZ"
+            o.rotation_euler.z += math.radians(-28)
 
 bpy.ops.mesh.primitive_plane_add(size=1, location=(0, 0, 0))
 ground = bpy.context.active_object
