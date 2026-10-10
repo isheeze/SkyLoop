@@ -48,6 +48,7 @@ func _init() -> void:
 	test_daily_and_spin()
 	test_disconnect_and_rejoin()
 	test_result_waits_for_return()
+	test_untrusted_input()
 	print("%d checks, %d failures" % [_checks, _failures.size()])
 	for f: String in _failures:
 		print("  - " + f)
@@ -175,6 +176,30 @@ func test_daily_and_spin() -> void:
 	be.handle(201, {"t": "queue", "tier": 5})
 	r = drain(201)
 	check(r[0].t == "error" and r[0].msg == "locked", "high tables are locked by level")
+
+
+## A modified app can claim anything; the server must not believe it.
+func test_untrusted_input() -> void:
+	var all_items: Array = Economy.SHOP.map(func(it: Dictionary) -> String: return it.id)
+	be.handle(301, {"t": "hello", "token": "", "name": "  X  ", "country": "../../etc", "avatar": "../evil",
+		"carry": {"coins": 999999999, "gems": 99999, "level": 80, "xp": 1e9, "trophies": 50000,
+			"owned": all_items, "equipped": {"token": "token_gold", "dice": "nope"},
+			"stats": {"matches": 3, "wins": 900}}})
+	var p: Dictionary = {}
+	for m: Dictionary in drain(301):
+		if m.t == "welcome":
+			p = m.profile
+	check(int(p.coins) <= Backend.CARRY_MAX_COINS and int(p.gems) <= Economy.START_GEMS + Backend.CARRY_MAX_GEMS,
+		"carried currency is capped")
+	check(int(p.level) <= Backend.CARRY_MAX_LEVEL and int(p.trophies) <= Backend.CARRY_MAX_TROPHIES, "carried level is capped")
+	check((p.owned as Array).size() <= 3, "a carry can't unlock the whole shop")
+	check(int(p.stats.wins) <= int(p.stats.matches), "wins never exceed matches")
+	check(p.avatar == "a01" and p.name == "Player", "bad avatar and too-short name are replaced")
+	be.handle(302, {"t": "hello", "token": "../../profiles/x", "name": "Y"})
+	var welcomed := false
+	for m: Dictionary in drain(302):
+		welcomed = welcomed or (m.t == "welcome" and str(m.token).length() == 32)
+	check(welcomed, "a forged token path gets a fresh account, not a file read")
 
 
 func test_disconnect_and_rejoin() -> void:

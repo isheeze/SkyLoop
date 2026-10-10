@@ -13,6 +13,11 @@ const Names = preload("res://net/names.gd")
 const Bot = preload("res://core/bot.gd")
 
 const PROTOCOL := 1
+## Caps on offline progress a player brings online the first time (see _import_carry).
+const CARRY_MAX_LEVEL := 6
+const CARRY_MAX_COINS := 8000
+const CARRY_MAX_GEMS := 60
+const CARRY_MAX_TROPHIES := 600
 
 ## Where profiles are stored. The app uses user://, the server sets an absolute folder.
 var store_dir := "user://backend"
@@ -162,7 +167,8 @@ func _hello(peer: int, msg: Dictionary) -> void:
 func _new_profile(token: String, msg: Dictionary) -> Dictionary:
 	return {
 		"token": token, "name": _clean_name(str(msg.get("name", "Player"))),
-		"country": str(msg.get("country", "")), "avatar": str(msg.get("avatar", "a01")),
+		"country": _clean_country(str(msg.get("country", ""))),
+		"avatar": str(msg.get("avatar", "a01")) if Names.AVATARS.has(str(msg.get("avatar", ""))) else "a01",
 		"coins": Economy.START_COINS, "gems": Economy.START_GEMS, "xp": 0, "level": 1,
 		"trophies": 0, "week": _week(), "week_trophies": 0,
 		"owned": [], "equipped": {"token": "", "dice": ""},
@@ -172,12 +178,35 @@ func _new_profile(token: String, msg: Dictionary) -> Dictionary:
 	}
 
 
+## Offline progress is the client's word, so it is bounded to what offline play could plausibly
+## earn: a modified app can't arrive rich. Identity always carries; currency and level are capped.
 func _import_carry(p: Dictionary, carry: Dictionary) -> void:
-	for k in ["name", "avatar", "coins", "gems", "xp", "level", "trophies", "owned", "equipped", "stats"]:
-		if carry.has(k):
-			p[k] = carry[k]
-	p.coins = clampi(int(p.coins), 0, 1000000)
-	p.gems = clampi(int(p.gems), 0, 5000)
+	if carry.has("name"):
+		p.name = _clean_name(str(carry.name))
+	if Names.AVATARS.has(str(carry.get("avatar", ""))):
+		p.avatar = str(carry.avatar)
+	p.level = clampi(int(carry.get("level", 1)), 1, CARRY_MAX_LEVEL)
+	p.xp = clampi(int(carry.get("xp", 0)), 0, Economy.xp_to_next(p.level) - 1)
+	p.coins = clampi(int(carry.get("coins", p.coins)), 0, CARRY_MAX_COINS)
+	p.gems = clampi(int(carry.get("gems", p.gems)), 0, Economy.START_GEMS + CARRY_MAX_GEMS)
+	p.trophies = clampi(int(carry.get("trophies", 0)), 0, CARRY_MAX_TROPHIES)
+	var owned: Array = []
+	for id in carry.get("owned", []):
+		if not Economy.shop_item(str(id)).is_empty() and not owned.has(str(id)) and owned.size() < 3:
+			owned.append(str(id))
+	p.owned = owned
+	var eq: Dictionary = carry.get("equipped", {}) if carry.get("equipped", {}) is Dictionary else {}
+	for slot in ["token", "dice"]:
+		var id := str(eq.get(slot, ""))
+		p.equipped[slot] = id if owned.has(id) else ""
+	var st: Dictionary = carry.get("stats", {}) if carry.get("stats", {}) is Dictionary else {}
+	var matches := clampi(int(st.get("matches", 0)), 0, 500)
+	p.stats = {"matches": matches, "wins": clampi(int(st.get("wins", 0)), 0, matches)}
+
+
+func _clean_country(c: String) -> String:
+	c = c.to_upper().substr(0, 5)
+	return c if Economy.CITY_NAMES.has(c) or (c.length() == 2 and c.is_valid_identifier()) else "WORLD"
 
 
 func _clean_name(n: String) -> String:

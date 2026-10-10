@@ -1,0 +1,30 @@
+# Skyloop on one VPS: the game server plus Caddy for automatic HTTPS (wss://).
+#   SKYLOOP_DOMAIN=play.example.com docker compose -f server/docker-compose.yml up -d --build
+services:
+  skyloop:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - skyloop-data:/data
+    expose:
+      - "8910"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SKYLOOP_DOMAIN=${SKYLOOP_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - skyloop
+
+volumes:
+  skyloop-data:
+  caddy-data:

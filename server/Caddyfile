@@ -1,0 +1,4 @@
+{$SKYLOOP_DOMAIN} {
+	# Caddy gets and renews the certificate; WebSocket upgrades pass straight through.
+	reverse_proxy skyloop:8910
+}

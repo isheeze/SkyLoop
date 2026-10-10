@@ -173,7 +173,7 @@ func _build_home() -> void:
 	col.add_child(buttons)
 	var prac := Kit.button("Practice", "", 170)
 	prac.size_flags_stretch_ratio = 0.55
-	prac.icon = load("res://art/icons/robot.svg")
+	prac.icon = load("res://art/icons/target.svg")
 	prac.add_theme_color_override("icon_normal_color", Kit.INK)
 	prac.add_theme_constant_override("icon_max_width", 56)
 	prac.pressed.connect(func() -> void: practice.emit())
@@ -971,6 +971,23 @@ func _page_profile(body: VBoxContainer) -> void:
 			tg.text = "On" if now else "Off"
 			tg.theme_type_variation = "Mint" if now else "")
 		row.add_child(tg)
+	var grow := HBoxContainer.new()
+	grow.add_theme_constant_override("separation", 20)
+	set_card.add_child(grow)
+	grow.add_child(Kit.icon("lightning", 64, Kit.INK))
+	var gl := Kit.label("Graphics", 42, Kit.INK, false, 800)
+	gl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grow.add_child(gl)
+	var gb := Kit.button("Low" if Fx.low_graphics() else "High", "" if Fx.low_graphics() else "Mint", 100)
+	gb.custom_minimum_size.x = 200
+	gb.size_flags_horizontal = Control.SIZE_SHRINK_END
+	gb.pressed.connect(func() -> void:
+		Fx.graphics = "high" if Fx.low_graphics() else "low"
+		Fx.save_settings()
+		Fx.graphics_changed.emit()
+		gb.text = "Low" if Fx.low_graphics() else "High"
+		gb.theme_type_variation = "" if Fx.low_graphics() else "Mint")
+	grow.add_child(gb)
 	var ver := Kit.label("Skyloop %s · %s" % [ProjectSettings.get_setting("application/config/version", "0.2.0"),
 		"online" if Net.online else "offline"], 30, Color.WHITE, false, 800)
 	ver.add_theme_color_override("font_outline_color", Color("3b2a7a"))

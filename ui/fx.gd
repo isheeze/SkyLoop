@@ -13,6 +13,9 @@ const VOLUME := {"hop": -14.0, "toast": -10.0, "click": -6.0, "land": -4.0, "hea
 
 var sound := true
 var haptics := true
+## "auto", "high" or "low". Auto picks low on phones with few cores or little memory.
+var graphics := "auto"
+signal graphics_changed
 
 var _streams := {}
 var _players: Array = []
@@ -58,10 +61,22 @@ func load_settings() -> void:
 	if cfg.load(SETTINGS_PATH) == OK:
 		sound = cfg.get_value("fx", "sound", true)
 		haptics = cfg.get_value("fx", "haptics", true)
+		graphics = cfg.get_value("fx", "graphics", "auto")
 
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("fx", "sound", sound)
 	cfg.set_value("fx", "haptics", haptics)
+	cfg.set_value("fx", "graphics", graphics)
 	cfg.save(SETTINGS_PATH)
+
+
+## True when the 3D scene should run its lighter path (no shadows or glow, lower resolution).
+func low_graphics() -> bool:
+	if graphics != "auto":
+		return graphics == "low"
+	if not OS.has_feature("mobile"):
+		return false
+	var mem := int(OS.get_memory_info().get("physical", 0))
+	return OS.get_processor_count() <= 4 or (mem > 0 and mem < 3_500_000_000)

@@ -32,6 +32,8 @@ var modals: Control
 var camera: Camera3D
 var dice3d: Node3D
 var _sky: TextureRect
+var _env: Environment
+var _key: DirectionalLight3D
 var _shake := 0.0  # camera shake strength, decays to 0
 var _punch := 0.0  # camera push-in for big moments, decays to 0
 
@@ -188,6 +190,10 @@ func _build_world() -> void:
 	# pass from re-drawing the whole city four times on phones.
 	key.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	add_child(key)
+	_env = env
+	_key = key
+	_apply_quality()
+	Fx.graphics_changed.connect(_apply_quality)
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color("c9d6ff")
 	fill.light_energy = 0.45
@@ -226,6 +232,17 @@ func _process(delta: float) -> void:
 	_shake = move_toward(_shake, 0.0, delta * 0.9)
 	_punch = move_toward(_punch, 0.0, delta * 0.5)
 	_place_camera()
+
+
+## High: shadows, glow, 2x MSAA. Low: none of those and 3D at 75% resolution.
+func _apply_quality() -> void:
+	var low := Fx.low_graphics()
+	_key.shadow_enabled = not low
+	_env.glow_enabled = not low
+	var vp := get_viewport()
+	vp.msaa_3d = Viewport.MSAA_DISABLED if low else Viewport.MSAA_2X
+	vp.scaling_3d_scale = 0.75 if low else 1.0
+	Engine.max_fps = 60
 
 
 func _parallax() -> void:

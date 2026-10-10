@@ -8,3 +8,4 @@
 *.keystore
 art/incoming/*.zip
 *.blend1
+*.jks
