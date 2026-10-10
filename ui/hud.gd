@@ -502,6 +502,13 @@ func waiting(who: int) -> void:
 	_subtitle.text = ""
 
 
+## The match is over: empty the action panel so nothing reads "thinking" under the results.
+func match_over() -> void:
+	_clear_actions()
+	_title.text = "Game over"
+	_subtitle.text = ""
+
+
 # ---------------------------------------------------------------- decisions
 
 func show_decision(pd: Dictionary) -> void:

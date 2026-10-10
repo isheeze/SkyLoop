@@ -227,6 +227,10 @@ func _process(delta: float) -> void:
 		var r := Vector3(0, 4.4, 9.6).rotated(Vector3.UP, _orbit_angle)
 		camera.position = r
 		camera.look_at(Vector3(0, -1.6, 0), Vector3.UP)
+		# Landscape (store art, tablets): frame by height so the island isn't cropped.
+		var vp := get_viewport().get_visible_rect().size
+		camera.keep_aspect = Camera3D.KEEP_HEIGHT if vp.x > vp.y else Camera3D.KEEP_WIDTH
+		camera.h_offset = -2.4 if OS.get_cmdline_user_args().has("--feature") else 0.0
 		return
 	_focus = _focus.lerp(_focus_target, 1.0 - exp(-3.0 * delta / maxf(Engine.time_scale, 1.0)))
 	_shake = move_toward(_shake, 0.0, delta * 0.9)
@@ -260,7 +264,7 @@ func _place_camera() -> void:
 	# just show more sky and island. Wider (tablet-like) screens can come in a little.
 	var vp := get_viewport().get_visible_rect().size
 	var aspect := vp.y / maxf(vp.x, 1.0)
-	var zoom := clampf(1.12 - (1.9 - aspect) * 0.15, 1.0, 1.12)
+	var zoom := clampf(1.12 + (1.9 - aspect) * 0.6, 1.12, 1.45)
 	var look := CAM_LOOK + _focus
 	if closeup_tile >= 0:
 		# Review mode: a low, close camera on one tile.
@@ -301,6 +305,8 @@ func _show_targets(pd: Dictionary) -> void:
 func _save_shot() -> void:
 	if OS.get_cmdline_user_args().has("--clean"):
 		hud.visible = false
+		lobby.visible = false
+		modals.visible = false
 		board.clear_targets()
 		await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
@@ -508,6 +514,7 @@ func _finish_match() -> void:
 		print("[client] match_end room=%d place=%d coins=%s" % [_room, int(msg.place), str(msg.get("coins", "?"))])
 	_in_match = false
 	hud.clear_deadline()
+	hud.match_over()
 	board.clear_targets()
 	if int(msg.place) == 0:
 		hud.confetti_2d()

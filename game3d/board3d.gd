@@ -397,6 +397,9 @@ func show_targets(options: Array) -> void:
 		root.scale = Vector3(0.6, 0.6, 0.6)
 		create_tween().tween_property(root, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		_targets.append({"tile": o.tile, "node": root})
+		# The target label replaces the tile's own price tag while it is shown.
+		if o.tile < _tiles.size() and _tiles[o.tile].tag != null:
+			_tiles[o.tile].tag.visible = false
 
 
 func clear_targets() -> void:
@@ -404,6 +407,8 @@ func clear_targets() -> void:
 		var n: Node3D = t.node
 		if is_instance_valid(n):
 			n.queue_free()
+		if int(t.tile) < _tiles.size() and _tiles[t.tile].tag != null:
+			_tiles[t.tile].tag.visible = true
 	_targets.clear()
 
 
