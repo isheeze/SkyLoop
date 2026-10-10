@@ -11,6 +11,7 @@ func _init() -> void:
 	var games := 1000
 	var n_players := 4
 	var rounds := Board.ROUNDS
+	var tier_rules := {}
 	var args := OS.get_cmdline_user_args()
 	for i in args.size() - 1:
 		match args[i]:
@@ -20,8 +21,14 @@ func _init() -> void:
 				n_players = int(args[i + 1])
 			"--rounds":
 				rounds = int(args[i + 1])
+			"--tier":
+				tier_rules = preload("res://core/economy.gd").TIERS[int(args[i + 1]) - 1].rules
+	_rules = tier_rules
 	_run(games, n_players, rounds)
 	quit()
+
+
+var _rules := {}
 
 
 func _run(games: int, n_players: int, rounds: int) -> void:
@@ -54,7 +61,7 @@ func _run(games: int, n_players: int, rounds: int) -> void:
 	var t0 := Time.get_ticks_msec()
 
 	for gi in games:
-		var cfg := {"seed": rng.randi(), "rounds": rounds, "players": []}
+		var cfg := {"seed": rng.randi(), "rounds": rounds, "players": [], "rules": _rules}
 		var pers := []
 		for i in n_players:
 			var ty: String = tycoons[rng.randi_range(0, tycoons.size() - 1)]

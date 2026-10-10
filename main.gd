@@ -418,6 +418,10 @@ func _pump() -> void:
 
 
 func _save_shot() -> void:
+	if OS.get_cmdline_user_args().has("--clean"):
+		hud.visible = false
+		board.clear_targets()
+		await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	print("PERF draw_calls=%d objects=%d primitives=%d fps=%d" % [
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),

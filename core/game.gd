@@ -48,6 +48,9 @@ var over := false
 var winner := -1
 var win_reason := ""
 var rng := RandomNumberGenerator.new()
+## Table rule twists (see core/economy.gd): salary_mult, auction_min, demand_start,
+## takeover_mult, pot_seed. Missing keys mean the standard rules.
+var rules := {}
 var stats := {"rent": 0, "buys": 0, "auctions": 0, "auction_sales": 0, "takeovers": 0,
 	"upgrades": 0, "landmarks": 0, "lead_changes": 0, "decisions": 0}
 
@@ -69,6 +72,8 @@ func _init(config: Dictionary = {}) -> void:
 		return
 	rng.seed = int(config.get("seed", 1))
 	rounds = int(config.get("rounds", Board.ROUNDS))
+	rules = config.get("rules", {}).duplicate()
+	pot = int(rules.get("pot_seed", Board.POT_SEED))
 	for pc: Dictionary in config.players:
 		var p := Player.new()
 		p.name = pc.get("name", "Player")
@@ -81,7 +86,7 @@ func _init(config: Dictionary = {}) -> void:
 		owner_of.append(-1)
 		level_of.append(0)
 	for d in Board.DISTRICT_COUNT:
-		demand.append(Board.DEMAND_START)
+		demand.append(int(rules.get("demand_start", Board.DEMAND_START)))
 		_idle.append(0)
 	mods = {"rent": 1.0, "build": 1.0, "salary": 1.0, "price": 1.0, "blackout": -1}
 	_deal_deeds(int(config.get("deeds", Board.START_DEEDS)))
@@ -111,10 +116,10 @@ func _deal_deeds(count: int) -> void:
 
 const _PLAYER_FIELDS := ["name", "tycoon", "is_bot", "pos", "cash", "steer", "debt", "frozen",
 	"permit", "shield", "squeeze", "power_used", "bailouts"]
-const _STATE_FIELDS := ["owner_of", "level_of", "demand", "pot", "round_no", "rounds", "turn",
+const _STATE_FIELDS := ["rules", "owner_of", "level_of", "demand", "pot", "round_no", "rounds", "turn",
 	"headline", "next_headline", "mods", "dice", "pending", "over", "winner", "win_reason", "stats",
 	"_stage", "_perk_due", "_auction", "_deck", "_idle", "_leader"]
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 
 
 ## A complete snapshot of the match (everything except unplayed `events`). Values keep their
@@ -150,6 +155,10 @@ static func from_dict(d: Dictionary):
 
 
 # ---------------------------------------------------------------- queries
+
+func salary() -> int:
+	return int(Board.SALARY * mods.salary * float(rules.get("salary_mult", 1.0)))
+
 
 func is_property(tile: int) -> bool:
 	return Board.TILES[tile].kind == Board.Kind.PROPERTY
@@ -253,7 +262,8 @@ func can_takeover(pi: int, tile: int) -> bool:
 
 
 func takeover_cost(pi: int, tile: int) -> int:
-	var m := 1.5 if players[pi].tycoon == "broker" else Board.TAKEOVER_MULT
+	var base: float = rules.get("takeover_mult", Board.TAKEOVER_MULT)
+	var m := minf(1.5, base) if players[pi].tycoon == "broker" else base
 	return _r5(tile_value(tile) * m)
 
 
@@ -322,7 +332,7 @@ func landing_preview(pi: int, steps: int) -> Dictionary:
 			text = "Payday"
 			tone = "good"
 	if passes and t.kind != Board.Kind.PAYDAY:
-		text += "  +$%d" % int(Board.SALARY * mods.salary)
+		text += "  +$%d" % salary()
 	return {"tile": tile, "text": text, "tone": tone}
 
 
@@ -527,7 +537,7 @@ func _step(steps: int) -> void:
 	p.pos = (from + steps) % Board.TILE_COUNT
 	_ev("move", {"p": turn, "from": from, "to": p.pos, "steps": steps})
 	if from + steps >= Board.TILE_COUNT:
-		_pay(BANK, turn, int(Board.SALARY * mods.salary), "salary")
+		_pay(BANK, turn, salary(), "salary")
 		var lh := landmark_owner(0)
 		if lh != -1:
 			_pay(BANK, lh, 30, "lighthouse")
@@ -566,7 +576,7 @@ func _resolve_tile() -> void:
 				_ev("frozen", {"p": turn})
 		Board.Kind.JACKPOT:
 			_pay(POT, turn, pot, "jackpot")
-			pot = Board.POT_SEED
+			pot = int(rules.get("pot_seed", Board.POT_SEED))
 		Board.Kind.TAX_RAID:
 			_pay(turn, POT, _r5(p.cash * Board.TAX_RAID_RATE), "tax_raid")
 		Board.Kind.METRO:
@@ -604,7 +614,7 @@ func _start_auction(tile: int) -> void:
 	for i in players.size():
 		order.append((turn + i) % players.size())
 	_auction = {"tile": tile, "order": order, "i": 0, "bids": {},
-		"min": _r5(price_of(tile) * Board.AUCTION_MIN_RATE)}
+		"min": _r5(price_of(tile) * float(rules.get("auction_min", Board.AUCTION_MIN_RATE)))}
 	stats.auctions += 1
 	_ev("auction_start", {"tile": tile, "min": _auction.min})
 	_ask_bid()
