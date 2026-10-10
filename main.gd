@@ -50,6 +50,7 @@ var _orbit := false
 var _orbit_angle := 0.0
 
 var _in_match := false
+var _greeted := false
 var _room := -1
 var _tier := 1
 var _updates: Array = []
@@ -238,10 +239,11 @@ func _parallax() -> void:
 
 func _place_camera() -> void:
 	_parallax()
-	# Taller phones have spare height, so come in closer and let the board fill it.
+	# The camera keeps its width, so the whole board fits across every phone; taller phones
+	# just show more sky and island. Wider (tablet-like) screens can come in a little.
 	var vp := get_viewport().get_visible_rect().size
 	var aspect := vp.y / maxf(vp.x, 1.0)
-	var zoom := clampf(1.0 - (aspect - 1.78) * 0.3, 0.86, 1.0)
+	var zoom := clampf(1.12 - (1.9 - aspect) * 0.15, 1.0, 1.12)
 	var look := CAM_LOOK + _focus
 	if closeup_tile >= 0:
 		# Review mode: a low, close camera on one tile.
@@ -250,13 +252,18 @@ func _place_camera() -> void:
 		camera.look_at(look, Vector3.UP)
 		return
 	var jitter := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * _shake * 0.12
-	camera.position = look + CAM_OFFSET * zoom * (1.0 - 0.35 * ease(_punch, 0.5)) + jitter
+	# Tall phones: lift the board into the space between the top bar and the action panel.
+	camera.v_offset = 0.0 if _orbit else -clampf((aspect - 1.78) * 0.8, 0.0, 0.4)
+	var tall := clampf((aspect - 1.78) / 0.45, 0.0, 1.0)
+	var offset := CAM_OFFSET + Vector3(0, 2.2, -1.2) * tall
+	offset = offset.normalized() * CAM_OFFSET.length() * (1.0 + 0.05 * tall)
+	camera.position = look + offset * zoom * (1.0 - 0.35 * ease(_punch, 0.5)) + jitter
 	camera.look_at(look + jitter * 0.5, Vector3.UP)
 
 
 ## Drifts the camera a little toward the action without losing the whole board.
 func _focus_on(world: Vector3) -> void:
-	_focus_target = Vector3(clampf(world.x * 0.6, -1.8, 1.8), 0, clampf(world.z * 0.45, -1.3, 1.3))
+	_focus_target = Vector3(clampf(world.x * 0.08, -0.2, 0.2), 0, clampf(world.z * 0.15, -0.4, 0.4))
 
 
 func _show_targets(pd: Dictionary) -> void:
@@ -294,6 +301,21 @@ func _on_net_ready() -> void:
 		return
 	if not _in_match:
 		_show_lobby()
+		_greet()
+
+
+## First launch: name and avatar. Then, once per session, the daily reward if it's waiting.
+func _greet() -> void:
+	if _greeted or menu_shot != "" or page_shot != "":
+		return
+	_greeted = true
+	await get_tree().create_timer(0.6).timeout
+	if not Net.is_onboarded():
+		modals.welcome(Net.profile)
+		await modals.welcomed
+		await get_tree().create_timer(0.5).timeout
+	if bool(Net.profile.get("daily_ready", false)) and not _in_match:
+		modals.daily(Net.profile)
 
 
 func _show_lobby() -> void:
@@ -358,6 +380,8 @@ func _start_match(msg: Dictionary) -> void:
 	_tier = int(msg.tier)
 	me = int(msg.seat)
 	meta = msg.players
+	if auto:
+		print("[client] match_start room=%d tier=%d seat=%d players=%s" % [_room, _tier, me, str(meta.map(func(m): return m.name))])
 	_updates.clear()
 	_ended = {}
 	_orbit = false
@@ -463,6 +487,8 @@ func _on_chosen(choice: Dictionary) -> void:
 func _finish_match() -> void:
 	var msg := _ended
 	_ended = {}
+	if auto:
+		print("[client] match_end room=%d place=%d coins=%s" % [_room, int(msg.place), str(msg.get("coins", "?"))])
 	_in_match = false
 	hud.clear_deadline()
 	board.clear_targets()
@@ -520,6 +546,11 @@ func _coach(kind: String) -> void:
 
 func _wait(seconds: float) -> void:
 	await get_tree().create_timer(seconds).timeout
+
+
+## "You use", "Sana uses".
+func _verb(pi: int, third: String, second: String) -> String:
+	return second if pi == me else third
 
 
 func _name(pi: int) -> String:
@@ -634,18 +665,18 @@ func _play(ev: Dictionary) -> void:
 			Fx.play("bailout")
 			if ev.p == me:
 				Fx.buzz(120, 0.9)
-			hud.toast("%s is bailed out — $%d in debt" % [_name(ev.p), ev.amount], Color("ff7a8a"))
+			hud.toast("%s %s bailed out — $%d in debt" % [_name(ev.p), _verb(ev.p, "is", "are"), ev.amount], Color("ff7a8a"))
 		"frozen":
-			hud.toast("%s is frozen by the audit ❄" % _name(ev.p), Color("9fd0ff"))
+			hud.toast("%s %s frozen by the audit ❄" % [_name(ev.p), _verb(ev.p, "is", "are")], Color("9fd0ff"))
 		"no_rent":
 			hud.toast("No rent due on %s" % Board.TILES[ev.tile].name)
 		"power":
-			hud.toast("%s uses %s!" % [_name(ev.p), Board.TYCOONS[ev.tycoon].power.get_slice(":", 0)],
+			hud.toast("%s %s %s!" % [_name(ev.p), _verb(ev.p, "uses", "use"), Board.TYCOONS[ev.tycoon].power.get_slice(":", 0)],
 				Color("ffc857"))
 			await _wait(0.4)
 		"perk":
 			if ev.p != me:
-				hud.toast("%s takes a %s" % [_name(ev.p), ev.perk])
+				hud.toast("%s %s a %s" % [_name(ev.p), _verb(ev.p, "takes", "take"), ev.perk])
 
 
 # ---------------------------------------------------------------- input

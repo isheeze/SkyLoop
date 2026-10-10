@@ -4,6 +4,7 @@ extends Control
 
 signal results_closed(play_again: bool)
 signal matchmaking_cancelled
+signal welcomed
 
 const Kit = preload("res://ui/kit.gd")
 const Economy = preload("res://core/economy.gd")
@@ -132,6 +133,81 @@ func notice(title: String, text: String) -> void:
 	var ok := Kit.button("OK", "Primary")
 	ok.pressed.connect(func() -> void: _close(v))
 	v.add_child(ok)
+
+
+# ---------------------------------------------------------------- first launch
+
+## First launch: the player picks a name and a face before anything else.
+func welcome(profile: Dictionary) -> void:
+	var v := _open(980)
+	var logo := TextureRect.new()
+	logo.texture = load("res://art/ui/logo.png")
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	logo.custom_minimum_size = Vector2(0, 220)
+	v.add_child(logo)
+	_text(v, "Welcome, tycoon! Pick your name and your face.")
+	var name_edit := LineEdit.new()
+	var start_name := str(profile.get("name", ""))
+	name_edit.text = "" if start_name.begins_with("Player") else start_name
+	name_edit.placeholder_text = start_name if start_name != "" else "Your name"
+	name_edit.max_length = 16
+	name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_edit.custom_minimum_size = Vector2(0, 120)
+	name_edit.add_theme_font_override("font", Kit.font(true, 600))
+	name_edit.add_theme_font_size_override("font_size", 52)
+	name_edit.add_theme_color_override("font_placeholder_color", Color(Kit.INK2, 0.55))
+	v.add_child(name_edit)
+	var picked := [str(profile.get("avatar", "a01"))]
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 18)
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(grid)
+	var rings: Array = []
+	for i in 12:
+		var id := "a%02d" % (i + 1)
+		var b := Button.new()
+		b.flat = true
+		b.custom_minimum_size = Vector2(196, 196)
+		for stn in ["focus", "hover", "pressed", "normal"]:
+			b.add_theme_stylebox_override(stn, StyleBoxEmpty.new())
+		var holder := Control.new()
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(holder)
+		rings.append([id, holder])
+		b.pressed.connect(func() -> void:
+			Fx.play("click")
+			picked[0] = id
+			_paint_avatars(rings, id))
+		grid.add_child(b)
+	_paint_avatars(rings, picked[0])
+	var go := Kit.button("Let's go!", "Primary")
+	go.pressed.connect(func() -> void:
+		var n := name_edit.text.strip_edges()
+		if n == "":
+			n = name_edit.placeholder_text
+		Net.set_identity(n, picked[0])
+		Net.send({"t": "set_name", "name": n})
+		Net.send({"t": "set_avatar", "avatar": picked[0]})
+		Net.mark_onboarded()
+		Fx.play("celebrate")
+		_close(v)
+		welcomed.emit())
+	v.add_child(go)
+
+
+func _paint_avatars(rings: Array, chosen: String) -> void:
+	for r: Array in rings:
+		var holder: Control = r[1]
+		for c in holder.get_children():
+			c.queue_free()
+		var on: bool = r[0] == chosen
+		var a := Kit.avatar(r[0], 186, Kit.GOLD if on else Color.WHITE, 12 if on else 5)
+		a.position = Vector2(5, 5)
+		a.modulate = Color.WHITE if on else Color(1, 1, 1, 0.82)
+		holder.add_child(a)
 
 
 # ---------------------------------------------------------------- daily

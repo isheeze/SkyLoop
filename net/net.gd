@@ -10,7 +10,7 @@ signal profile_changed(profile: Dictionary)
 signal message(msg: Dictionary)  # everything else (match_start, update, reward, ...)
 
 const Backend = preload("res://net/backend.gd")
-const IDENTITY := "user://identity.cfg"
+var IDENTITY := "user://identity.cfg"  # --identity=NAME gives test clients separate players
 const CONNECT_TIMEOUT := 4.0
 
 ## Set in project.godot as skyloop/server_url, e.g. "wss://play.skyloop.example". Empty = offline.
@@ -36,6 +36,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--server="):
 			server_url = a.substr(9)
+		elif a.begins_with("--identity="):
+			IDENTITY = "user://identity_%s.cfg" % a.substr(11)
 	_id.load(IDENTITY)
 	country = str(_id.get_value("me", "country", ""))
 	if country == "":
@@ -140,6 +142,15 @@ func _set_profile(p: Dictionary) -> void:
 func set_identity(name: String, avatar: String) -> void:
 	_id.set_value("me", "name", name)
 	_id.set_value("me", "avatar", avatar)
+	_id.save(IDENTITY)
+
+
+func is_onboarded() -> bool:
+	return bool(_id.get_value("me", "onboarded", false))
+
+
+func mark_onboarded() -> void:
+	_id.set_value("me", "onboarded", true)
 	_id.save(IDENTITY)
 
 

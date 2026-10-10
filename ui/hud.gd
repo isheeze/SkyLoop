@@ -562,16 +562,23 @@ func show_decision(pd: Dictionary) -> void:
 			for act: Dictionary in pd.actions:
 				if act.a == "upgrade":
 					builds.append(act)
+			var powers := (pd.actions as Array).filter(func(act: Dictionary) -> bool: return act.a == "power")
+			# Keep the panel short: four builds at most, and powers behind one button when
+			# there are several, so the board stays visible.
 			if not builds.is_empty():
 				var grid := _grid(2)
-				for act: Dictionary in builds:
-					var lvl: int = g.level_of[act.tile] + 1
-					var what: String = Board.DISTRICTS[Board.TILES[act.tile].district].landmark \
-						if lvl == Board.LANDMARK_LEVEL else "Lv %d" % lvl
-					grid.add_child(_button("%s → %s\n%s" % [Board.TILES[act.tile].name, what, _money(act.cost)], act))
-			for act: Dictionary in pd.actions:
-				if act.a == "power":
-					_add_button("★  " + _power_label(p.tycoon, act), act)
+				for act: Dictionary in builds.slice(0, 4):
+					grid.add_child(_build_button(act))
+				if builds.size() > 4:
+					_add_custom("More builds (%d)" % (builds.size() - 4), func() -> void:
+						_show_list("Build", "Pick a tile to build on.", builds.map(func(act: Dictionary) -> Button:
+							return _build_button(act)), pd))
+			if powers.size() == 1:
+				_add_button("★  " + _power_label(p.tycoon, powers[0]), powers[0])
+			elif powers.size() > 1:
+				_add_custom("★  %s (%d)" % [_power_name(p.tycoon), powers.size()], func() -> void:
+					_show_list(_power_name(p.tycoon), "Your tycoon power. Pick one.", powers.map(func(act: Dictionary) -> Button:
+						return _button(_power_label(p.tycoon, act), act)), pd))
 			_add_button("End turn", {"a": "end"}, true)
 
 
@@ -609,6 +616,43 @@ func _show_shortcut() -> void:
 		if g.is_property(t) and t != g.players[g.turn].pos:
 			grid.add_child(_button(Board.TILES[t].name, {"shortcut": t}))
 	_add_custom("Back", func() -> void: show_decision(g.pending))
+
+
+func _build_button(act: Dictionary) -> Button:
+	var lvl: int = g.level_of[act.tile] + 1
+	var what: String = Board.DISTRICTS[Board.TILES[act.tile].district].landmark \
+		if lvl == Board.LANDMARK_LEVEL else "Lv %d" % lvl
+	return _button("%s → %s\n%s" % [Board.TILES[act.tile].name, what, _money(act.cost)], act)
+
+
+## A sub-list of choices (all builds, all power targets) with a way back.
+func _show_list(title: String, sub: String, buttons: Array, pd: Dictionary) -> void:
+	_clear_actions()
+	_title.text = title
+	_subtitle.text = sub
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, mini(buttons.size(), 5) * 102)
+	_actions.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 1
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("v_separation", 12)
+	scroll.add_child(grid)
+	for b: Button in buttons:
+		grid.add_child(b)
+	_add_custom("Back", func() -> void: show_decision(pd))
+
+
+func _power_name(tycoon: String) -> String:
+	match tycoon:
+		"developer":
+			return "Overnight Build"
+		"shark":
+			return "Squeeze"
+		"broker":
+			return "Swap tiles"
+	return "Power"
 
 
 func _power_label(tycoon: String, act: Dictionary) -> String:

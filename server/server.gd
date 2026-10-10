@@ -32,6 +32,7 @@ func _process(_delta: float) -> void:
 		ws.outbound_buffer_size = 1 << 20
 		ws.accept_stream(_tcp.take_connection())
 		_peers[_next_id] = ws
+		print("peer %d connected" % _next_id)
 		_next_id += 1
 	for id in _peers.keys():
 		var ws: WebSocketPeer = _peers[id]
@@ -45,6 +46,7 @@ func _process(_delta: float) -> void:
 			WebSocketPeer.STATE_CLOSED:
 				_peers.erase(id)
 				_backend.disconnected(id)
+				print("peer %d left" % id)
 
 
 func _send(id: int, msg: Dictionary) -> void:
