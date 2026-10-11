@@ -142,7 +142,9 @@ func setup(game, player_colors: Array, human_index: int, players_meta: Array = [
 
 ## Canvas space the HUD covers above and below the board (top, bottom). The bottom is a fixed
 ## reserve so the board doesn't jump when the action panel changes height.
-const BOTTOM_RESERVE := 400.0
+## Every decision panel is built to fit this height (title + at most two rows of buttons),
+## so the board above it is never covered and never moves.
+const BOTTOM_RESERVE := 600.0
 
 
 func board_insets() -> Vector2:
@@ -716,9 +718,10 @@ func show_decision(pd: Dictionary) -> void:
 		"perk":
 			_title.text = "Payday!"
 			_subtitle.text = "Salary is in. Pick a perk."
-			_add_button("+$%d cash" % Board.PERK_CASH, {"perk": "cash"}, true)
-			_add_button("✦ Permit — next build half price", {"perk": "permit"})
-			_add_button("⛨ Shield — next rent halved", {"perk": "shield"})
+			var row := _grid(3)
+			row.add_child(_two_line("+$%d" % Board.PERK_CASH, "Cash now", {"perk": "cash"}, "Primary"))
+			row.add_child(_two_line("Permit", "Next build ½ price", {"perk": "permit"}, ""))
+			row.add_child(_two_line("Shield", "Next rent ½", {"perk": "shield"}, ""))
 		"buy":
 			var t: Dictionary = Board.TILES[pd.tile]
 			_title.text = t.name
@@ -751,23 +754,62 @@ func show_decision(pd: Dictionary) -> void:
 				if act.a == "upgrade":
 					builds.append(act)
 			var powers := (pd.actions as Array).filter(func(act: Dictionary) -> bool: return act.a == "power")
-			# Keep the panel short: four builds at most, and powers behind one button when
-			# there are several, so the board stays visible.
-			if not builds.is_empty():
-				var grid := _grid(2)
-				for act: Dictionary in builds.slice(0, 4):
-					grid.add_child(_build_button(act))
-				if builds.size() > 4:
-					_add_custom("More builds (%d)" % (builds.size() - 4), func() -> void:
-						_show_list("Build", "Pick a tile to build on.", builds.map(func(act: Dictionary) -> Button:
-							return _build_button(act)), pd))
+			if builds.is_empty():
+				_subtitle.text = "Use your power, or end the turn."
+			else:
+				_subtitle.text = "Swipe to see every tile you can build on."
+				_actions.add_child(_swipe_row(builds.map(func(act: Dictionary) -> Button: return _build_button(act))))
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 14)
+			_actions.add_child(row)
 			if powers.size() == 1:
-				_add_button("★  " + _power_label(p.tycoon, powers[0]), powers[0])
+				var pb := _button("★  " + _power_name(p.tycoon), powers[0])
+				row.add_child(pb)
 			elif powers.size() > 1:
-				_add_custom("★  %s (%d)" % [_power_name(p.tycoon), powers.size()], func() -> void:
+				var pb := _button("★  %s (%d)" % [_power_name(p.tycoon), powers.size()], {})
+				pb.pressed.connect(func() -> void:
 					_show_list(_power_name(p.tycoon), "Your tycoon power. Pick one.", powers.map(func(act: Dictionary) -> Button:
 						return _button(_power_label(p.tycoon, act), act)), pd))
-			_add_button("End turn", {"a": "end"}, true)
+				row.add_child(pb)
+			row.add_child(_button("End turn", {"a": "end"}, true))
+
+
+## A horizontally scrolling row of choice cards (for long lists), one row tall.
+func _swipe_row(buttons: Array) -> ScrollContainer:
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	scroll.custom_minimum_size = Vector2(0, 168)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	scroll.add_child(row)
+	for b: Button in buttons:
+		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		b.custom_minimum_size = Vector2(300, 150)
+		row.add_child(b)
+	return scroll
+
+
+## A button with a big first line and a small second line.
+func _two_line(big: String, small: String, choice: Dictionary, variant: String) -> Button:
+	var b := Kit.button("", variant, 150)
+	b.pressed.connect(_emit.bind(choice))
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_bottom = -12
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", -4)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var ink := Color("3a2600") if variant == "Primary" else Kit.INK
+	var a := Kit.label(big, 42, ink, true, 700)
+	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(a)
+	var c := Kit.label(small, 26, ink, false, 800)
+	c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	c.clip_text = true
+	v.add_child(c)
+	return b
 
 
 ## A destination button: the step count big, what happens there underneath, coloured by
@@ -802,9 +844,6 @@ func _show_bid(pd: Dictionary) -> void:
 	var t: Dictionary = Board.TILES[pd.tile]
 	_title.text = "Sealed auction · %s" % t.name
 	_subtitle.text = "List %s. Highest secret bid wins. Minimum %s." % [_money(t.price), _money(pd.min_bid)]
-	var amount := _label(_money(pd.min_bid), 56, 700, ACCENT)
-	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_actions.add_child(amount)
 	var slider := HSlider.new()
 	slider.min_value = pd.min_bid
 	slider.max_value = pd.max_bid
@@ -812,33 +851,27 @@ func _show_bid(pd: Dictionary) -> void:
 	slider.value = mini(pd.max_bid, int(t.price * 0.8 / 5.0) * 5)
 	slider.custom_minimum_size = Vector2(0, 70)
 	_actions.add_child(slider)
-	amount.text = _money(int(slider.value))
 	var row := _grid(2)
 	var bid_btn := _button("Bid %s" % _money(int(slider.value)), {}, true)
-	slider.value_changed.connect(func(v: float) -> void:
-		amount.text = _money(int(v))
-		bid_btn.text = "Bid %s" % _money(int(v)))
+	slider.value_changed.connect(func(v: float) -> void: bid_btn.text = "Bid %s" % _money(int(v)))
 	bid_btn.pressed.connect(func() -> void: _emit({"bid": int(slider.value)}))
 	row.add_child(_button("Pass", {"bid": 0}))
 	row.add_child(bid_btn)
 
 
 func _show_shortcut() -> void:
-	_clear_actions()
-	_title.text = "Shortcut"
-	_subtitle.text = "Jump to any district tile."
-	var grid := _grid(2)
+	var tiles := []
 	for t in Board.TILE_COUNT:
 		if g.is_property(t) and t != g.players[g.turn].pos:
-			grid.add_child(_button(Board.TILES[t].name, {"shortcut": t}))
-	_add_custom("Back", func() -> void: show_decision(g.pending))
+			tiles.append(_button(Board.TILES[t].name, {"shortcut": t}))
+	_show_list("Shortcut", "Jump to any district tile.", tiles, g.pending)
 
 
 func _build_button(act: Dictionary) -> Button:
 	var lvl: int = g.level_of[act.tile] + 1
 	var what: String = Board.DISTRICTS[Board.TILES[act.tile].district].landmark \
-		if lvl == Board.LANDMARK_LEVEL else "Lv %d" % lvl
-	return _button("%s → %s\n%s" % [Board.TILES[act.tile].name, what, _money(act.cost)], act)
+		if lvl == Board.LANDMARK_LEVEL else "Level %d" % lvl
+	return _two_line(Board.TILES[act.tile].name, "%s · %s" % [what, _money(act.cost)], act, "")
 
 
 ## A sub-list of choices (all builds, all power targets) with a way back.
@@ -846,17 +879,7 @@ func _show_list(title: String, sub: String, buttons: Array, pd: Dictionary) -> v
 	_clear_actions()
 	_title.text = title
 	_subtitle.text = sub
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(0, mini(buttons.size(), 5) * 102)
-	_actions.add_child(scroll)
-	var grid := GridContainer.new()
-	grid.columns = 1
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("v_separation", 12)
-	scroll.add_child(grid)
-	for b: Button in buttons:
-		grid.add_child(b)
+	_actions.add_child(_swipe_row(buttons))
 	_add_custom("Back", func() -> void: show_decision(pd))
 
 
