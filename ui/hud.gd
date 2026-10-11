@@ -362,13 +362,16 @@ func _make_chip(pi: int) -> Dictionary:
 	var cash := Kit.label("0", 40, Kit.INK, true, 700)
 	cash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(cash)
-	# Status marks (frozen, shield, permit, debt) sit in the card's top corner.
-	var info := Kit.label("", 26, Kit.INK2, false, 800)
-	info.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	info.position = Vector2(-60, 6)
-	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring.add_child(info)
-	return {"panel": panel, "cash": cash, "info": info, "ring": ring}
+	# One status pill under the cash: IN DEBT, FROZEN, SHIELD or PERMIT (most important first).
+	var pill := PanelContainer.new()
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.modulate.a = 0.0  # space stays reserved so cards never change height
+	var info := Kit.label("", 21, Color.WHITE, true, 700)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pill.add_child(info)
+	v.add_child(pill)
+	return {"panel": panel, "cash": cash, "info": info, "pill": pill, "ring": ring}
 
 
 func _short_name(pi: int) -> String:
@@ -511,15 +514,38 @@ func refresh(animate := true) -> void:
 			ring.active = active
 			ring.progress = 1.0
 			ring.queue_redraw()
-		var flags := ""
-		if p.permit:
-			flags += " ✦"
-		if p.shield:
-			flags += " ⛨"
-		if p.frozen:
-			flags += " ❄"
-		var debt := ("  −%d" % p.debt) if p.debt > 0 else ""
-		chip.info.text = "%s%s" % [flags.strip_edges(), debt]
+		var status := ""
+		var tone := Kit.INK
+		if p.debt > 0:
+			status = "IN DEBT"
+			tone = Color("e0334d")
+		elif p.frozen:
+			status = "FROZEN"
+			tone = Color("3f8fd9")
+		elif p.shield:
+			status = "SHIELD"
+			tone = Color("1f9e68")
+		elif p.permit:
+			status = "PERMIT"
+			tone = Kit.VIOLET
+		chip.info.text = status
+		var ps := StyleBoxFlat.new()
+		ps.bg_color = tone
+		ps.set_corner_radius_all(16)
+		ps.content_margin_left = 14
+		ps.content_margin_right = 14
+		ps.content_margin_top = 1
+		ps.content_margin_bottom = 3
+		ps.anti_aliasing = true
+		chip.pill.add_theme_stylebox_override("panel", ps)
+		chip.pill.modulate.a = 1.0 if status != "" else 0.0
+		# In debt, the number shows what the player owes, in red: their real position.
+		if p.debt > 0:
+			chip.cash.text = "−" + _num(p.debt)
+			chip.cash.add_theme_color_override("font_color", Color("e0334d"))
+			_shown_cash[pi] = p.cash
+			continue
+		chip.cash.add_theme_color_override("font_color", Kit.INK)
 		if animate and _shown_cash[pi] != p.cash:
 			var from: int = _shown_cash[pi]
 			var lbl: Label = chip.cash

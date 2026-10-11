@@ -202,6 +202,15 @@ func _show_targets(pd: Dictionary) -> void:
 
 
 func _save_shot() -> void:
+	if OS.get_cmdline_user_args().has("--status-demo") and g != null:
+		# Review aid: show every card state at once.
+		g.players[0].debt = 140
+		g.players[0].cash = 0
+		g.players[1].frozen = true
+		g.players[2].shield = true
+		g.players[3].permit = true
+		hud.refresh(false)
+		await RenderingServer.frame_post_draw
 	if OS.get_cmdline_user_args().has("--clean"):
 		hud.visible = false
 		lobby.visible = false
