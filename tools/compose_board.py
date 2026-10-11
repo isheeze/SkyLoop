@@ -18,8 +18,20 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KIT = os.path.join(ROOT, "art", "incoming", "kit")
-OUT = os.path.join(ROOT, "art", "boards", "sky")
+THEME = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--theme=")), "sky")
+SKY_KIT = os.path.join(ROOT, "art", "incoming", "kit")
+KIT = SKY_KIT if THEME == "sky" else os.path.join(ROOT, "art", "incoming", "kit_" + THEME)
+OUT = os.path.join(ROOT, "art", "boards", THEME)
+GAME_DIR = os.path.join(ROOT, "art", "boards", THEME + "_game")
+# Each city re-colours the measured sky island (so every board shares the exact geometry):
+# ground ramp (dark, light), cliff ramp (dark, light), sky tint (colour, strength).
+ISLANDS = {
+    "forest": ((46, 104, 52), (132, 190, 96), (74, 52, 38), (150, 112, 78), ((120, 170, 140), 0.18)),
+    "desert": ((196, 146, 82), (246, 218, 156), (150, 74, 40), (232, 150, 92), ((255, 196, 150), 0.22)),
+    "city": ((70, 140, 72), (150, 205, 110), (88, 90, 104), (170, 168, 176), ((170, 190, 230), 0.15)),
+    "metro": ((150, 156, 170), (226, 230, 238), (58, 64, 84), (130, 138, 160), ((140, 160, 220), 0.25)),
+    "future": ((150, 170, 230), (236, 244, 255), (52, 40, 110), (130, 110, 220), ((90, 70, 170), 0.45)),
+}
 FONT = os.path.join(ROOT, "art", "fonts", "Fredoka.ttf")
 BUILT = "--built" in sys.argv
 EXPORT = "--export" in sys.argv  # game assets: static base + live sprites + layout
@@ -273,6 +285,20 @@ def warp_onto(canvas, sprite, dst_top, dst_right, dst_left):
     canvas.alpha_composite(out)
 
 
+def solid_share(sprite):
+    """Fraction of a sprite's bounding box that is solid (a cut that ate the object is low)."""
+    al = np.asarray(sprite.getchannel("A")) > 200
+    return float(al.mean())
+
+
+def tint_sprite(sprite, color):
+    """Multiplies a sprite's colours toward a tint, keeping its shading."""
+    a = np.asarray(sprite).astype(np.float32)
+    lum = (a[..., :3].mean(2) / 255.0)[..., None]
+    a[..., :3] = np.clip(np.array(color, np.float32) * (0.45 + 0.6 * lum), 0, 255)
+    return Image.fromarray(a.astype(np.uint8), "RGBA")
+
+
 def tint_plot(sprite, color):
     """Paints a plot's bare soil in its owner's colour (fence and shading kept)."""
     a = np.asarray(sprite).astype(np.float32)
@@ -313,13 +339,48 @@ def chip(draw, at, text, fill, ink, size):
     draw.text((at[0], at[1] + 1), text, font=font, fill=ink, anchor="mm")
 
 
+def recolour_island(img, spec):
+    """Maps the sky island's green lawn and brown cliff onto a city's ramps, keeping the shading."""
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+    from scipy import ndimage
+    sat = (a.max(2) - a.min(2)) / 255.0
+    # Sky: light, soft pixels connected to the image's top and side edges.
+    light = (lum > 0.55) & (sat < 0.42) & ~((g > r + 12) & (g > b + 20))
+    lab, _ = ndimage.label(light)
+    edge = set(np.unique(np.concatenate([lab[0], lab[:, 0], lab[:, -1], lab[:int(lab.shape[0] * 0.45), 0]]))) - {0}
+    sky = np.isin(lab, list(edge))
+    lawn = (g > r + 12) & (g > b + 20) & ~sky
+    water = (((b > r + 18) & (b >= g)) | ((lum > 0.66) & (sat < 0.22))) & ~sky & ~lawn
+    cliff = ~sky & ~lawn & ~water
+    out = a.copy()
+
+    def ramp(mask, lo, hi, lo_l, hi_l):
+        t = np.clip((lum[mask] - lo_l) / (hi_l - lo_l), 0, 1)[:, None]
+        out[mask] = np.array(lo, np.float32) * (1 - t) + np.array(hi, np.float32) * t
+
+    ramp(lawn, spec[0], spec[1], 0.25, 0.75)
+    ramp(cliff, spec[2], spec[3], 0.15, 0.7)
+    tint, k = spec[4]
+    out[sky] = out[sky] * (1 - k) + np.array(tint, np.float32) * k
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8)).convert("RGBA")
+
+
 def build():
-    island = Image.open(os.path.join(KIT, "island_iso.jpg")).convert("RGBA")
+    island = Image.open(os.path.join(SKY_KIT, "island_iso.jpg")).convert("RGBA")
+    if THEME in ISLANDS:
+        island = recolour_island(island, ISLANDS[THEME])
     W, H = island.size
     fr = Frame((903, 519), (1666, 968), (143, 994))
     cw = fr.cell_w()
     tiles = [cut(q)[0] for q in quarters(os.path.join(KIT, "sheet_a.jpg"))]
     cream, gold, plot_sp, road_sp = tiles
+    # White-on-white tiles can be cut away entirely; fall back to the sky kit's stone tile,
+    # tinted towards this city's own tile colour.
+    if solid_share(cream) < 0.3:
+        sky_cream = cut(quarters(os.path.join(SKY_KIT, "sheet_a.jpg"))[0])[0]
+        cream = tint_sprite(sky_cream, (232, 234, 240))
     # One building set per player colour (gold, coral, mint, sky), four levels each.
     sets = [[cut(q)[0] for q in quarters(os.path.join(KIT, "bld_%s.jpg" % c))] for c in ("gold", "coral", "mint", "blue")]
     marks = [dehalo(cut(q)[0]) for q in quarters(os.path.join(KIT, "landmarks.jpg"))]
@@ -468,7 +529,7 @@ def build():
 
 def export(canvas, layout, tags, plot_sp, sets, cw, W, H):
     """Writes the game's board kit: base.jpg (static art), sprites/*.png and board.json."""
-    gdir = os.path.join(ROOT, "art", "boards", "sky_game")
+    gdir = GAME_DIR
     sdir = os.path.join(gdir, "sprites")
     os.makedirs(sdir, exist_ok=True)
     canvas.convert("RGB").save(os.path.join(gdir, "base.jpg"), quality=88)

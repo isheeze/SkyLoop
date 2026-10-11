@@ -6,8 +6,10 @@ extends Control
 
 signal play(tier: int)
 signal practice
+signal tier_changed(tier: int)  # the carousel settled on another table
 
 const Kit = preload("res://ui/kit.gd")
+const Themes = preload("res://game3d/themes.gd")
 const Economy = preload("res://core/economy.gd")
 const Modals = preload("res://ui/modals.gd")
 
@@ -250,36 +252,73 @@ func _tier_card(t: int) -> Control:
 	v.add_theme_constant_override("separation", 0)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(v)
-	# Coloured banner with the city name.
-	var banner := PanelContainer.new()
+	# Banner: a window onto the city's painted board, with its name over a soft shade.
+	var theme: Dictionary = Themes.for_tier(t)
+	var banner := Panel.new()
+	banner.custom_minimum_size = Vector2(0, 236)
+	banner.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
 	var bs := StyleBoxFlat.new()
 	bs.bg_color = color
 	bs.corner_radius_top_left = 56
 	bs.corner_radius_top_right = 56
-	bs.border_color = color.darkened(0.18)
-	bs.border_width_bottom = 12
-	bs.content_margin_left = 44
-	bs.content_margin_right = 36
-	bs.content_margin_top = 26
-	bs.content_margin_bottom = 26
+	bs.anti_aliasing = true
 	banner.add_theme_stylebox_override("panel", bs)
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(banner)
-	var bh := HBoxContainer.new()
-	bh.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	banner.add_child(bh)
+	var bdir := "sky_game" if str(theme.id) == "town" else str(theme.id) + "_game"
+	var art_path := "res://art/boards/%s/base.jpg" % bdir
+	if ResourceLoader.exists(art_path):
+		var art := TextureRect.new()
+		var at := AtlasTexture.new()
+		at.atlas = load(art_path)
+		at.region = Rect2(380, 620, 1040, 470)  # the board's heart: centrepiece and inner loop
+		art.texture = at
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		banner.add_child(art)
+	var shade := TextureRect.new()
+	var gt := GradientTexture2D.new()
+	var gr := Gradient.new()
+	gr.colors = PackedColorArray([Color(0.11, 0.13, 0.25, 0.0), Color(0.11, 0.13, 0.25, 0.72)])
+	gt.gradient = gr
+	gt.fill_from = Vector2(0, 0.2)
+	gt.fill_to = Vector2(0, 1)
+	shade.texture = gt
+	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	banner.add_child(shade)
+	var pill := PanelContainer.new()
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.11, 0.13, 0.25, 0.72)
+	ps.set_corner_radius_all(24)
+	ps.content_margin_left = 20
+	ps.content_margin_right = 20
+	ps.content_margin_top = 6
+	ps.content_margin_bottom = 8
+	pill.add_theme_stylebox_override("panel", ps)
+	pill.position = Vector2(34, 26)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(Kit.label(str(theme.name).to_upper(), 26, Color.WHITE, true, 600))
+	banner.add_child(pill)
 	var bv := VBoxContainer.new()
-	bv.add_theme_constant_override("separation", -6)
-	bv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bv.add_theme_constant_override("separation", -8)
+	bv.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bv.offset_left = 40
+	bv.offset_top = -132
+	bv.offset_bottom = -18
 	bv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bh.add_child(bv)
-	var city := Kit.title(Economy.tier_name(t, Net.country).to_upper(), 86)
+	banner.add_child(bv)
+	var city := Kit.title(Economy.tier_name(t, Net.country).to_upper(), 78)
 	city.name = "City"
+	city.add_theme_constant_override("outline_size", 14)
+	city.add_theme_color_override("font_outline_color", Color(0.11, 0.13, 0.25, 0.85))
 	bv.add_child(city)
 	var sub := Kit.label("TABLE %d  ·  %s" % [t, Economy.COUNTRY_NAMES.get(Net.country, "World").to_upper()],
-		30, Color(1, 1, 1, 0.92), true, 600)
+		28, Color(1, 1, 1, 0.95), true, 600)
 	bv.add_child(sub)
-	bh.add_child(Kit.icon3d("trophy" if t == 5 else ("crown" if t == 4 else "coins"), 150))
 	# Body: twist, entry and prize.
 	var body := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -398,6 +437,7 @@ func _go(t: int) -> void:
 	if changed:
 		Fx.play("toast", -4.0)
 		Fx.buzz(10, 0.2)
+		tier_changed.emit(tier)
 	var tw := create_tween()
 	tw.tween_method(func(v: float) -> void:
 		_offset = v

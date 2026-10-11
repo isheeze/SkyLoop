@@ -97,6 +97,7 @@ func _ready() -> void:
 	lobby.setup(modals)
 	lobby.play.connect(_on_play)
 	lobby.practice.connect(_on_practice)
+	lobby.tier_changed.connect(_on_lobby_tier)
 	modals.results_closed.connect(_on_results_closed)
 	modals.matchmaking_cancelled.connect(func() -> void: pass)
 	Net.connected.connect(_on_net_ready)
@@ -146,6 +147,10 @@ func _show_page_for_shot(name: String) -> void:
 			modals.reward(300, 5, "Daily reward!")
 		"levelup":
 			modals.level_up(3)
+		"welcome":
+			modals.welcome(Net.profile)
+		"tier2", "tier3", "tier4", "tier5", "tier6":
+			lobby._go(int(name.substr(4)))
 		_:
 			lobby.open_page(name)
 
@@ -277,12 +282,22 @@ func _on_play(tier: int) -> void:
 	Net.send({"t": "queue", "tier": tier})
 
 
+## Swiping the carousel shows that city's island behind it (rebuilt once the swipe settles).
+func _on_lobby_tier(t: int) -> void:
+	_lobby_tier = t
+	await get_tree().create_timer(0.3).timeout
+	if _lobby_tier == t and not _in_match and lobby.visible:
+		_demo_board()
+
+
 ## Each table has its own painted world; tables without one yet use the hill town.
 func _board_for(tier: int) -> String:
 	if board_override != "":
 		return board_override
+	# Table themes: town (the sky island), forest, desert, city, metro, future.
 	var id := str(Themes.for_tier(tier).id)
-	return id if ResourceLoader.exists("res://art/boards/%s/board.json" % id) else "sky_game"
+	var dir := "sky_game" if id == "town" else id + "_game"
+	return dir if ResourceLoader.exists("res://art/boards/%s/board.json" % dir) else "sky_game"
 
 
 func _on_practice() -> void:
