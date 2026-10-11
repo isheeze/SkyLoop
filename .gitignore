@@ -9,3 +9,7 @@
 art/incoming/*.zip
 *.blend1
 *.jks
+art/incoming/concepts/
+art/incoming/mockups/
+art/incoming/sprites/
+art/incoming/centres/

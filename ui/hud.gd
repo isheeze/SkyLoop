@@ -48,26 +48,60 @@ class DieFace extends Control:
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color("f7f4ee")
-		sb.set_corner_radius_all(int(size.x * 0.22))
-		sb.shadow_color = Color(0, 0, 0, 0.35)
-		sb.shadow_size = 10
-		sb.shadow_offset = Vector2(0, 6)
-		draw_style_box(sb, r)
+		var rad := int(size.x * 0.27)
+		var lip := StyleBoxFlat.new()
+		lip.bg_color = Color("d5daea")
+		lip.set_corner_radius_all(rad)
+		lip.shadow_color = Color(0.19, 0.12, 0.43, 0.18)
+		lip.shadow_size = 10
+		lip.shadow_offset = Vector2(0, 6)
+		draw_style_box(lip, r)
+		var face := StyleBoxFlat.new()
+		face.bg_color = Color("fffaf2")
+		face.set_corner_radius_all(rad)
+		draw_style_box(face, Rect2(Vector2.ZERO, size - Vector2(0, size.y * 0.09)))
+		var h := size.y * 0.91
 		var pips := {1: [[0.5, 0.5]], 2: [[0.28, 0.28], [0.72, 0.72]],
 			3: [[0.26, 0.26], [0.5, 0.5], [0.74, 0.74]],
 			4: [[0.28, 0.28], [0.72, 0.28], [0.28, 0.72], [0.72, 0.72]],
 			5: [[0.27, 0.27], [0.73, 0.27], [0.5, 0.5], [0.27, 0.73], [0.73, 0.73]],
 			6: [[0.28, 0.24], [0.72, 0.24], [0.28, 0.5], [0.72, 0.5], [0.28, 0.76], [0.72, 0.76]]}
 		for p: Array in pips[clampi(value, 1, 6)]:
-			draw_circle(Vector2(p[0], p[1]) * size, size.x * 0.085, Color("1d2232"))
+			draw_circle(Vector2(p[0] * size.x, p[1] * h), size.x * 0.085, Color("1d2340"))
+
+
+## A player's portrait in a ring. On the active player the ring is the turn timer: it drains
+## clockwise from full.
+class Ring extends Control:
+	var color := Color.WHITE
+	var active := false
+	var progress := 1.0:
+		set(v):
+			progress = v
+			queue_redraw()
+
+	func _draw() -> void:
+		var c := size / 2
+		var r := size.x / 2
+		if not active:
+			draw_circle(c, r, color, true, -1.0, true)
+			return
+		draw_circle(c, r, Color("e7e9f3"), true, -1.0, true)
+		if progress > 0.001:
+			var pts := PackedVector2Array([c])
+			var n := maxi(3, int(64 * progress))
+			for k in n + 1:
+				var a := -PI / 2 + TAU * progress * k / n
+				pts.append(c + Vector2(cos(a), sin(a)) * r)
+			draw_colored_polygon(pts, color)
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = _make_theme()
+	# The kit's button looks (white, Primary, Mint, Coral) on top of the HUD's own theme.
+	theme.merge_with(Kit.theme())
 
 
 var meta: Array = []  # per seat {name, avatar, level, country}
@@ -86,9 +120,10 @@ func setup(game, player_colors: Array, human_index: int, players_meta: Array = [
 	var frame := MarginContainer.new()
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for side: String in ["left", "right", "bottom"]:
-		frame.add_theme_constant_override("margin_" + side, 20)
-	frame.add_theme_constant_override("margin_top", 40)
+	for side: String in ["left", "right"]:
+		frame.add_theme_constant_override("margin_" + side, 24)
+	frame.add_theme_constant_override("margin_bottom", 0)
+	frame.add_theme_constant_override("margin_top", 32)
 	add_child(frame)
 	_column = VBoxContainer.new()
 	_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -103,6 +138,18 @@ func setup(game, player_colors: Array, human_index: int, players_meta: Array = [
 	_build_sheet()
 	_build_tile_card()
 	refresh(false)
+
+
+## Canvas space the HUD covers above and below the board (top, bottom). The bottom is a fixed
+## reserve so the board doesn't jump when the action panel changes height.
+const BOTTOM_RESERVE := 400.0
+
+
+func board_insets() -> Vector2:
+	var top := 300.0
+	if _headline_panel != null and _headline_panel.is_inside_tree():
+		top = _headline_panel.get_global_rect().end.y + 12.0
+	return Vector2(top, BOTTOM_RESERVE)
 
 
 # ---------------------------------------------------------------- theme
@@ -204,12 +251,12 @@ func _label(text: String, size: int, weight := 500, color := TEXT) -> Label:
 
 func _build_top() -> void:
 	var top := VBoxContainer.new()
-	top.add_theme_constant_override("separation", 16)
+	top.add_theme_constant_override("separation", 18)
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_column.add_child(top)
 
 	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 12)
+	chips.add_theme_constant_override("separation", 16)
 	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(chips)
 	for pi in g.players.size():
@@ -218,95 +265,110 @@ func _build_top() -> void:
 		_chips.append(chip)
 		_shown_cash.append(g.players[pi].cash)
 
-	_headline_panel = PanelContainer.new()
-	var hsb := panel_box(CARD, 26)
-	hsb.content_margin_top = 14
-	hsb.content_margin_bottom = 14
-	_headline_panel.add_theme_stylebox_override("panel", hsb)
-	_headline_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(_headline_panel)
 	var hrow := HBoxContainer.new()
-	hrow.add_theme_constant_override("separation", 18)
-	_headline_panel.add_child(hrow)
-	var rv := VBoxContainer.new()
-	rv.alignment = BoxContainer.ALIGNMENT_CENTER
-	rv.add_theme_constant_override("separation", -8)
-	rv.add_child(_label("ROUND", 18, 600, DIM))
-	_round_label = _label("1/12", 40, 700)
-	rv.add_child(_round_label)
-	for l: Label in rv.get_children():
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hrow.add_child(rv)
-	var sep := ColorRect.new()
-	sep.color = Color(1, 1, 1, 0.12)
-	sep.custom_minimum_size = Vector2(2, 0)
-	hrow.add_child(sep)
+	hrow.add_theme_constant_override("separation", 16)
+	top.add_child(hrow)
+	_headline_panel = PanelContainer.new()
+	var hsb := Kit.box(Color(1, 1, 1, 0.9), 42, Color(0.63, 0.59, 0.82, 0.35), 8)
+	hsb.content_margin_left = 22
+	hsb.content_margin_right = 26
+	hsb.content_margin_top = 16
+	hsb.content_margin_bottom = 16
+	_headline_panel.add_theme_stylebox_override("panel", hsb)
+	_headline_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_headline_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hrow.add_child(_headline_panel)
+	var inner := HBoxContainer.new()
+	inner.add_theme_constant_override("separation", 22)
+	_headline_panel.add_child(inner)
+	var pill := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Kit.INK
+	psb.set_corner_radius_all(26)
+	psb.content_margin_left = 20
+	psb.content_margin_right = 20
+	psb.content_margin_top = 6
+	psb.content_margin_bottom = 8
+	psb.anti_aliasing = true
+	pill.add_theme_stylebox_override("panel", psb)
+	pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	inner.add_child(pill)
+	_round_label = Kit.label("R1/12", 38, Color.WHITE, true, 700)
+	pill.add_child(_round_label)
 	var hv := VBoxContainer.new()
-	hv.add_theme_constant_override("separation", 0)
+	hv.add_theme_constant_override("separation", -4)
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hrow.add_child(hv)
-	var tline := HBoxContainer.new()
-	hv.add_child(tline)
-	_headline_title = _label("", 30, 700, ACCENT)
-	_headline_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tline.add_child(_headline_title)
-	_next_label = _label("", 20, 500, DIM)
-	tline.add_child(_next_label)
-	var chat := Button.new()
-	chat.icon = load("res://art/icons/chat-circle-dots.svg")
-	chat.add_theme_color_override("icon_normal_color", TEXT)
-	chat.add_theme_constant_override("icon_max_width", 40)
-	chat.custom_minimum_size = Vector2(76, 76)
-	chat.pressed.connect(_open_chat)
-	hrow.add_child(chat)
-	var pause := Button.new()
-	pause.icon = load("res://art/icons/pause.svg")
-	pause.add_theme_color_override("icon_normal_color", TEXT)
-	pause.add_theme_constant_override("icon_max_width", 34)
-	pause.custom_minimum_size = Vector2(76, 76)
-	pause.pressed.connect(toggle_pause)
-	hrow.add_child(pause)
-	_headline_text = _label("", 23, 400, TEXT)
-	_headline_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hv.alignment = BoxContainer.ALIGNMENT_CENTER
+	inner.add_child(hv)
+	_headline_title = Kit.label("", 37, Color("b45309"), true, 600)
+	_headline_title.clip_text = true
+	hv.add_child(_headline_title)
+	_headline_text = Kit.label("", 30, Kit.INK, false, 800)
+	_headline_text.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_headline_text.clip_text = true
 	hv.add_child(_headline_text)
+	_next_label = Kit.label("", 1, Kit.INK2, false, 700)
+	_next_label.visible = false
+	hv.add_child(_next_label)
+	for spec: Array in [["chat-circle-dots", _open_chat], ["pause", toggle_pause]]:
+		var b := Kit.button("", "", 124)
+		b.custom_minimum_size = Vector2(124, 124)
+		b.size_flags_horizontal = Control.SIZE_SHRINK_END
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.icon = load("res://art/icons/%s.svg" % spec[0])
+		b.add_theme_color_override("icon_normal_color", Kit.INK)
+		b.add_theme_color_override("icon_pressed_color", Kit.INK)
+		b.add_theme_color_override("icon_hover_color", Kit.INK)
+		b.add_theme_constant_override("icon_max_width", 54)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		for st in ["normal", "hover", "pressed"]:
+			var bx := Kit.button_box(Color.WHITE if st != "pressed" else Color("f4f5fa"), Kit.LIP, st == "pressed", 42)
+			bx.content_margin_left = 0
+			bx.content_margin_right = 0
+			bx.content_margin_top = 8 if st == "pressed" else 0
+			bx.content_margin_bottom = 0
+			bx.border_width_bottom = 4 if st == "pressed" else 10
+			b.add_theme_stylebox_override(st, bx)
+		b.pressed.connect(spec[1])
+		hrow.add_child(b)
 
 
 func _make_chip(pi: int) -> Dictionary:
-	var p = g.players[pi]
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 0)
+	v.add_theme_constant_override("separation", 2)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(v)
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 10)
-	v.add_child(head)
-	var av := str(meta[pi].avatar) if pi < meta.size() else ""
-	head.add_child(Kit.avatar(av, 54, colors[pi], 4) if av != "" else portrait(p.tycoon, colors[pi], 52))
-	var name_l := _label(_short_name(pi), 24, 600, TEXT)
+	var ring := Ring.new()
+	ring.color = colors[pi]
+	ring.custom_minimum_size = Vector2(124, 124)
+	ring.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(ring)
+	var av := str(meta[pi].avatar) if pi < meta.size() else "a%02d" % (pi + 1)
+	var face := Kit.avatar(av, 104, Color.WHITE, 0)
+	face.position = Vector2(10, 10)
+	var fsb: StyleBoxFlat = face.get_theme_stylebox("panel").duplicate()
+	fsb.shadow_size = 0
+	face.add_theme_stylebox_override("panel", fsb)
+	ring.add_child(face)
+	var name_l := Kit.label(_short_name(pi), 33, Kit.INK, true, 600)
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_l.clip_text = true
-	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(name_l)
-	var cash := _label("$0", 38, 700, TEXT)
+	name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	v.add_child(name_l)
+	var cash := Kit.label("0", 40, Kit.INK, true, 700)
+	cash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(cash)
-	var foot := HBoxContainer.new()
-	v.add_child(foot)
-	var tycoon := _label(Board.TYCOONS[p.tycoon].name.replace("The ", ""), 19, 700, (colors[pi] as Color).darkened(0.35))
-	tycoon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	foot.add_child(tycoon)
-	var info := _label("", 19, 500, DIM)
-	foot.add_child(info)
-	# Turn timer: a bar that drains under the active player's card.
-	var timer := Panel.new()
-	timer.custom_minimum_size = Vector2(0, 8)
-	var ts := StyleBoxFlat.new()
-	ts.bg_color = colors[pi]
-	ts.set_corner_radius_all(4)
-	timer.add_theme_stylebox_override("panel", ts)
-	timer.visible = false
-	v.add_child(timer)
-	return {"panel": panel, "cash": cash, "info": info, "timer": timer, "style": ts}
+	# Status marks (frozen, shield, permit, debt) sit in the card's top corner.
+	var info := Kit.label("", 26, Kit.INK2, false, 800)
+	info.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	info.position = Vector2(-60, 6)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.add_child(info)
+	return {"panel": panel, "cash": cash, "info": info, "ring": ring}
 
 
 func _short_name(pi: int) -> String:
@@ -315,42 +377,93 @@ func _short_name(pi: int) -> String:
 	return str(meta[pi].name) if pi < meta.size() else g.players[pi].name
 
 
+var _toast_layer: MarginContainer
+
+
 func _build_toasts() -> void:
-	var layer := MarginContainer.new()
-	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	layer.add_theme_constant_override("margin_top", 430)
-	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(layer)
+	_toast_layer = MarginContainer.new()
+	_toast_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_toast_layer.add_theme_constant_override("margin_top", 330)
+	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_toast_layer)
 	_toasts = VBoxContainer.new()
 	_toasts.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_toasts.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_toasts.add_theme_constant_override("separation", 10)
 	_toasts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(_toasts)
+	_toast_layer.add_child(_toasts)
+
+
+var _steer_box: VBoxContainer
+var _steer_pips: HBoxContainer
 
 
 func _build_sheet() -> void:
 	_sheet = PanelContainer.new()
-	var sb := panel_box(CARD, 40)
-	sb.set_content_margin_all(26)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Kit.CARD
+	sb.corner_radius_top_left = 70
+	sb.corner_radius_top_right = 70
+	sb.content_margin_left = 36
+	sb.content_margin_right = 36
+	sb.content_margin_top = 34
+	sb.content_margin_bottom = 52
+	sb.shadow_color = Color(0.19, 0.12, 0.43, 0.22)
+	sb.shadow_size = 28
+	sb.anti_aliasing = true
 	_sheet.add_theme_stylebox_override("panel", sb)
 	_column.add_child(_sheet)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
+	v.add_theme_constant_override("separation", 26)
 	_sheet.add_child(v)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 26)
+	v.add_child(head)
 	_dice_row = HBoxContainer.new()
-	_dice_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_dice_row.add_theme_constant_override("separation", 22)
-	v.add_child(_dice_row)
-	_title = _label("", 36, 700)
+	_dice_row.add_theme_constant_override("separation", 16)
+	_dice_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(_dice_row)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 0)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	head.add_child(tv)
+	_title = Kit.label("", 54, Kit.INK, true, 700)
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(_title)
-	_subtitle = _label("", 24, 400, DIM)
+	tv.add_child(_title)
+	_subtitle = Kit.label("", 31, Kit.INK2, false, 700)
 	_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(_subtitle)
+	tv.add_child(_subtitle)
+	_steer_box = VBoxContainer.new()
+	_steer_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_steer_box.add_theme_constant_override("separation", 2)
+	_steer_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(_steer_box)
+	_steer_pips = HBoxContainer.new()
+	_steer_pips.add_theme_constant_override("separation", 4)
+	_steer_pips.alignment = BoxContainer.ALIGNMENT_CENTER
+	_steer_box.add_child(_steer_pips)
+	var sl := Kit.label("STEER", 28, Kit.INK2, false, 800)
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_steer_box.add_child(sl)
+	_steer_box.visible = false
 	_actions = VBoxContainer.new()
-	_actions.add_theme_constant_override("separation", 12)
+	_actions.add_theme_constant_override("separation", 18)
 	v.add_child(_actions)
+
+
+## Shows my steer tokens as violet diamonds (grey for empty slots).
+func _show_steer(count: int, cap: int) -> void:
+	for c in _steer_pips.get_children():
+		c.queue_free()
+	for k in maxi(cap, count):
+		var d := Label.new()
+		d.text = "◆"
+		d.add_theme_font_override("font", Kit.font(true, 700))
+		d.add_theme_font_size_override("font_size", 40)
+		d.add_theme_color_override("font_color", Kit.VIOLET if k < count else Kit.LIP)
+		_steer_pips.add_child(d)
+	_steer_box.visible = true
 
 
 func _build_tile_card() -> void:
@@ -373,23 +486,31 @@ func _build_tile_card() -> void:
 func refresh(animate := true) -> void:
 	if _round_label == null:
 		return
-	_round_label.text = "%d/%d" % [g.round_no, g.rounds]
+	_round_label.text = "R%d/%d" % [g.round_no, g.rounds]
+	_toast_layer.add_theme_constant_override("margin_top", int(board_insets().x) + 8)
 	for pi in _chips.size():
 		var p = g.players[pi]
 		var chip: Dictionary = _chips[pi]
 		var active: bool = pi == g.turn and not g.over
 		var pc: Color = colors[pi]
-		var sb := panel_box(pc.lerp(Color.WHITE, 0.72) if active else CARD, 26, pc.darkened(0.1) if active else Color(0, 0, 0, 0))
+		var sb: StyleBoxFlat
 		if active:
-			sb.border_width_bottom = 8
-			sb.border_width_top = 3
-			sb.border_width_left = 3
-			sb.border_width_right = 3
-		sb.set_content_margin_all(14)
+			sb = Kit.box(Color.WHITE, 46, pc, 14)
+			sb.shadow_color = Color(0.19, 0.12, 0.43, 0.26)
+			sb.shadow_size = 26
+		else:
+			sb = Kit.box(Color(1, 1, 1, 0.82), 46, Color(0.63, 0.59, 0.82, 0.4), 10)
+			sb.shadow_size = 0
+		sb.content_margin_left = 8
+		sb.content_margin_right = 8
+		sb.content_margin_top = 18
+		sb.content_margin_bottom = 12
 		chip.panel.add_theme_stylebox_override("panel", sb)
-		var steer := ""
-		for k in p.steer:
-			steer += "◆"
+		var ring: Ring = chip.ring
+		if ring.active != active:
+			ring.active = active
+			ring.progress = 1.0
+			ring.queue_redraw()
 		var flags := ""
 		if p.permit:
 			flags += " ✦"
@@ -398,19 +519,24 @@ func refresh(animate := true) -> void:
 		if p.frozen:
 			flags += " ❄"
 		var debt := ("  −%d" % p.debt) if p.debt > 0 else ""
-		chip.info.text = "%s%s%s" % [steer, flags, debt]
+		chip.info.text = "%s%s" % [flags.strip_edges(), debt]
 		if animate and _shown_cash[pi] != p.cash:
 			var from: int = _shown_cash[pi]
 			var lbl: Label = chip.cash
-			create_tween().tween_method(func(v: float) -> void: lbl.text = _money(int(v)),
+			create_tween().tween_method(func(v: float) -> void: lbl.text = _num(int(v)),
 				float(from), float(p.cash), 0.6).set_trans(Tween.TRANS_QUAD)
 			var flash := Color("17a35b") if p.cash > from else Color("e0334d")
 			lbl.add_theme_color_override("font_color", flash)
-			create_tween().tween_callback(func() -> void: lbl.add_theme_color_override("font_color", TEXT)) \
+			create_tween().tween_callback(func() -> void: lbl.add_theme_color_override("font_color", Kit.INK)) \
 				.set_delay(0.7)
 		else:
-			chip.cash.text = _money(p.cash)
+			chip.cash.text = _num(p.cash)
 		_shown_cash[pi] = p.cash
+
+
+## Cash on the player cards: plain numbers, like the mockups.
+static func _num(v: int) -> String:
+	return _money(v).replace("$", "")
 
 
 static func _money(v: int) -> String:
@@ -434,30 +560,54 @@ func show_headline(h: Dictionary, next: Dictionary) -> void:
 	tw.tween_property(_headline_panel, "modulate:a", 1.0, 0.25)
 
 
-func toast(text: String, color := Color.WHITE) -> void:
+## A dark pill under the round bar: "[face] Ayesha paid you +120". `seat` adds that player's
+## portrait; a trailing "+N"/"-N"/"$N" amount is drawn in gold.
+func toast(text: String, color := Color.WHITE, seat := -1) -> void:
 	var p := PanelContainer.new()
-	var sb := panel_box(INK, 999)
-	sb.border_width_bottom = 0
-	sb.content_margin_left = 30
-	sb.content_margin_right = 30
-	sb.content_margin_top = 12
-	sb.content_margin_bottom = 12
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.114, 0.137, 0.251, 0.9)
+	sb.set_corner_radius_all(999)
+	sb.content_margin_left = 16 if seat >= 0 else 36
+	sb.content_margin_right = 38
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	sb.anti_aliasing = true
 	p.add_theme_stylebox_override("panel", sb)
 	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var l := _label(text, 27, 600, color)
-	p.add_child(l)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	p.add_child(row)
+	if seat >= 0 and seat < meta.size():
+		row.add_child(Kit.avatar(str(meta[seat].avatar), 70, colors[seat], 4))
+	var words := text
+	var amount := ""
+	var parts := text.rsplit(" ", true, 1)
+	if parts.size() == 2 and (parts[1].begins_with("+") or parts[1].begins_with("-") or parts[1].begins_with("$")):
+		words = parts[0]
+		amount = parts[1]
+	var l := Kit.label(words, 35, color if color != Color.WHITE else Color.WHITE, false, 800)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(l)
+	if amount != "":
+		var a := Kit.label(amount, 38, Color("ffd56a"), true, 700)
+		a.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(a)
 	_toasts.add_child(p)
-	while _toasts.get_child_count() > 3:
+	while _toasts.get_child_count() > 2:
 		var old := _toasts.get_child(0)
 		_toasts.remove_child(old)
 		old.queue_free()
 	p.modulate.a = 0.0
+	p.pivot_offset = Vector2(200, 40)
+	p.scale = Vector2(0.9, 0.9)
 	var tw := create_tween()
-	tw.tween_property(p, "modulate:a", 1.0, 0.18)
-	tw.tween_interval(2.2)
-	tw.tween_property(p, "modulate:a", 0.0, 0.4)
-	tw.tween_callback(p.queue_free)
+	tw.set_parallel()
+	tw.tween_property(p, "modulate:a", 1.0, 0.16)
+	tw.tween_property(p, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_interval(2.2)
+	tw.chain().tween_property(p, "modulate:a", 0.0, 0.35)
+	tw.chain().tween_callback(p.queue_free)
 
 
 ## Tumbles the dice faces and settles on the rolled values. Await it.
@@ -471,8 +621,8 @@ func roll_dice(values: Array) -> void:
 	_subtitle.text = ""
 	for v: int in values:
 		var d := DieFace.new()
-		d.custom_minimum_size = Vector2(96, 96)
-		d.pivot_offset = Vector2(48, 48)
+		d.custom_minimum_size = Vector2(118, 118)
+		d.pivot_offset = Vector2(59, 59)
 		_dice_row.add_child(d)
 		_dice.append(d)
 	for k in 9:
@@ -517,13 +667,11 @@ func show_decision(pd: Dictionary) -> void:
 	match pd.type:
 		"move":
 			_title.text = "Where to?"
-			_subtitle.text = "Moving by the total is free. A single die costs one steer ◆ (you have %d)." % p.steer
-			var grid := _grid(2)
+			_subtitle.text = "Tap a glowing tile or a choice below"
+			_show_steer(p.steer, 5 if p.tycoon == "drifter" else 3)
+			var grid := _grid(mini(3, pd.options.size()))
 			for s: int in pd.options:
-				var dest: int = (p.pos + s) % Board.TILE_COUNT
-				var free: bool = pd.free.has(s)
-				grid.add_child(_button("%d · %s%s" % [s, Board.TILES[dest].name, "" if free else "  ◆1"],
-					{"steps": s}, free))
+				grid.add_child(_move_button(pd, s))
 			if pd.can_shortcut:
 				_add_custom("★  Shortcut anywhere", _show_shortcut)
 		"metro":
@@ -587,6 +735,34 @@ func show_decision(pd: Dictionary) -> void:
 					_show_list(_power_name(p.tycoon), "Your tycoon power. Pick one.", powers.map(func(act: Dictionary) -> Button:
 						return _button(_power_label(p.tycoon, act), act)), pd))
 			_add_button("End turn", {"a": "end"}, true)
+
+
+## A destination button: the step count big, what happens there underneath, coloured by
+## whether it's good (mint), costly (coral) or neutral (white). Steered moves show a ◆.
+func _move_button(pd: Dictionary, steps: int) -> Button:
+	var pv: Dictionary = g.landing_preview(pd.player, steps)
+	var free: bool = pd.free.has(steps)
+	var tone: String = pv.get("tone", "neutral")
+	var variant: String = {"good": "Mint", "bad": "Coral"}.get(tone, "")
+	var ink: Color = {"good": Color("063b25"), "bad": Color.WHITE}.get(tone, Kit.INK)
+	var b := Kit.button("", variant, 186)
+	b.pressed.connect(_emit.bind({"steps": steps}))
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_bottom = -14
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", -6)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var n := Kit.label("%d%s" % [steps, "" if free else " ◆"], 56, ink, true, 700)
+	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(n)
+	var what := Kit.label(str(pv.get("text", Board.TILES[pv.tile].name)), 33, ink, true, 600)
+	what.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	what.clip_text = true
+	what.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	v.add_child(what)
+	return b
 
 
 func _show_bid(pd: Dictionary) -> void:
@@ -687,18 +863,11 @@ func _grid(cols: int) -> GridContainer:
 
 
 func _button(text: String, choice: Dictionary, primary := false) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 88)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b := Kit.button(text, "Primary" if primary else "", 150)
+	b.add_theme_font_size_override("font_size", 40)
 	b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	if primary:
-		b.theme_type_variation = "Primary"
 	if not choice.is_empty():
 		b.pressed.connect(_emit.bind(choice))
-	b.pressed.connect(func() -> void:
-		Fx.play("click")
-		Fx.buzz(12, 0.3))
 	return b
 
 
@@ -718,6 +887,8 @@ func _emit(choice: Dictionary) -> void:
 
 
 func _clear_actions() -> void:
+	if _steer_box != null:
+		_steer_box.visible = false
 	for c in _actions.get_children():
 		_actions.remove_child(c)
 		c.queue_free()
@@ -1006,24 +1177,18 @@ func set_deadline(seat: int, seconds: float) -> void:
 	clear_deadline()
 	if seat < 0 or seat >= _chips.size():
 		return
-	var chip: Dictionary = _chips[seat]
-	var bar: Panel = chip.timer
-	bar.visible = true
-	bar.custom_minimum_size.x = 0
-	bar.scale = Vector2.ONE
-	bar.pivot_offset = Vector2.ZERO
-	var st: StyleBoxFlat = chip.style
-	st.bg_color = colors[seat]
+	var ring: Ring = _chips[seat].ring
+	ring.active = true
+	ring.progress = 1.0
 	_deadline_tw = create_tween()
-	_deadline_tw.tween_property(bar, "scale:x", 0.0, seconds)
-	_deadline_tw.parallel().tween_property(st, "bg_color", Color("ff5d73"), seconds * 0.4).set_delay(seconds * 0.6)
+	_deadline_tw.tween_property(ring, "progress", 0.0, seconds)
 
 
 func clear_deadline() -> void:
 	if _deadline_tw != null and _deadline_tw.is_valid():
 		_deadline_tw.kill()
 	for chip: Dictionary in _chips:
-		chip.timer.visible = false
+		(chip.ring as Ring).progress = 1.0
 
 
 func _open_chat() -> void:

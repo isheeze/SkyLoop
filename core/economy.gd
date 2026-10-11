@@ -7,31 +7,35 @@ const START_COINS := 1000
 const START_GEMS := 20
 const RAKE := 0.10  # the house keeps 10% of every pot so coins don't inflate
 
-## The five tables. Players from different countries share a table; only the city name on
-## their screen changes. `rules` are passed straight into the engine config.
+## The six tables, climbing from a small town to a city of the future. Players from different
+## countries share a table; only the city name on their screen changes (each country's names
+## are picked to suit the table's look). `rules` are passed straight into the engine config.
 const TIERS := [
-	{"id": 1, "entry": 100, "level": 1, "twist": "Harbour Rush", "desc": "Payday pays 50% more.",
-		"rules": {"salary_mult": 1.5}},
-	{"id": 2, "entry": 500, "level": 3, "twist": "Bazaar Days", "desc": "Auctions open at 40% of the price.",
-		"rules": {"auction_min": 0.4}},
-	{"id": 3, "entry": 2000, "level": 6, "twist": "Green Belt", "desc": "Every district starts with hot demand.",
-		"rules": {"demand_start": 3}},
-	{"id": 4, "entry": 5000, "level": 10, "twist": "Old Gate", "desc": "Takeovers cost only 1.5x.",
-		"rules": {"takeover_mult": 1.5}},
-	{"id": 5, "entry": 10000, "level": 14, "twist": "High Rollers", "desc": "Jackpot starts at 500.",
-		"rules": {"pot_seed": 500}},
+	{"id": 1, "theme": "town", "entry": 100, "level": 1, "twist": "Market Day",
+		"desc": "Payday pays 50% more.", "rules": {"salary_mult": 1.5}},
+	{"id": 2, "theme": "forest", "entry": 500, "level": 3, "twist": "Timber Rush",
+		"desc": "Auctions open at 40% of the price.", "rules": {"auction_min": 0.4}},
+	{"id": 3, "theme": "desert", "entry": 2000, "level": 6, "twist": "Oasis Boom",
+		"desc": "Every district starts with hot demand.", "rules": {"demand_start": 3}},
+	{"id": 4, "theme": "city", "entry": 5000, "level": 10, "twist": "Rush Hour",
+		"desc": "Takeovers cost only 1.5x.", "rules": {"takeover_mult": 1.5}},
+	{"id": 5, "theme": "metro", "entry": 10000, "level": 14, "twist": "High Rollers",
+		"desc": "Jackpot starts at 500.", "rules": {"pot_seed": 500}},
+	{"id": 6, "theme": "future", "entry": 25000, "level": 18, "twist": "Neon Nights",
+		"desc": "Jackpot starts at 1,000 and Payday pays 25% more.", "rules": {"pot_seed": 1000, "salary_mult": 1.25}},
 ]
 
-## City names per country, one per tier. Anything else falls back to WORLD.
+## City names per country, one per table, matched to its look: small town, forest, desert,
+## city, big city, future city. Anything else falls back to WORLD.
 const CITY_NAMES := {
-	"PK": ["Karachi", "Lahore", "Islamabad", "Peshawar", "Multan"],
-	"IN": ["Mumbai", "Delhi", "Jaipur", "Kolkata", "Bengaluru"],
-	"BD": ["Dhaka", "Chattogram", "Sylhet", "Khulna", "Rajshahi"],
-	"AE": ["Sharjah", "Ajman", "Al Ain", "Abu Dhabi", "Dubai"],
-	"SA": ["Dammam", "Abha", "Taif", "Jeddah", "Riyadh"],
-	"GB": ["Bristol", "Liverpool", "Manchester", "Edinburgh", "London"],
-	"US": ["Austin", "Chicago", "Miami", "San Francisco", "New York"],
-	"WORLD": ["Lisbon", "Istanbul", "Dubai", "London", "Tokyo"],
+	"PK": ["Hunza", "Murree", "Bahawalpur", "Lahore", "Karachi", "Neo Islamabad"],
+	"IN": ["Shimla", "Munnar", "Jaisalmer", "Delhi", "Mumbai", "Neo Bengaluru"],
+	"BD": ["Sylhet", "Sundarbans", "Cox's Bazar", "Chattogram", "Dhaka", "Neo Dhaka"],
+	"AE": ["Hatta", "Al Ain", "Liwa", "Sharjah", "Dubai", "Masdar"],
+	"SA": ["Taif", "Abha", "AlUla", "Jeddah", "Riyadh", "NEOM"],
+	"GB": ["Bath", "Sherwood", "Dungeness", "Manchester", "London", "Neo London"],
+	"US": ["Nantucket", "Yosemite", "Sedona", "Chicago", "New York", "Neo San Francisco"],
+	"WORLD": ["Hallstatt", "Black Forest", "Marrakesh", "Paris", "Tokyo", "Neo Seoul"],
 }
 
 const COUNTRY_NAMES := {"PK": "Pakistan", "IN": "India", "BD": "Bangladesh", "AE": "UAE",

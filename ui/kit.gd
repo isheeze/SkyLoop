@@ -18,7 +18,7 @@ const MINT := Color("3ddc97")
 const SKY := Color("38b6ff")
 const VIOLET := Color("8e6ce0")
 const CREAM := Color("fff6ec")
-const TIER_COLORS := [Color("38b6ff"), Color("ff8a5c"), Color("3ddc97"), Color("8e6ce0"), Color("ffb21f")]
+const TIER_COLORS := [Color("ff8a5c"), Color("3ddc97"), Color("ffb21f"), Color("38b6ff"), Color("8e6ce0"), Color("2fd0d8")]
 
 static var _fonts := {}
 static var _icons := {}

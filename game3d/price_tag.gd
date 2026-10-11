@@ -42,6 +42,34 @@ func show_text(text: String, fill: Color) -> void:
 	_label.modulate = Color("1b2133") if fill.get_luminance() > 0.55 else Color.WHITE
 
 
+static var _bold: FontVariation
+static var _disc: ImageTexture
+
+
+static func bold_font() -> FontVariation:
+	if _bold == null:
+		_bold = FontVariation.new()
+		_bold.base_font = FONT
+		_bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 700}
+	return _bold
+
+
+## A white disc with a soft rim (tinted per use), for round badges.
+static func disc_texture() -> ImageTexture:
+	if _disc == null:
+		var n := 120
+		var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+		for y in n:
+			for x in n:
+				var d := Vector2(x + 0.5 - n / 2.0, y + 0.5 - n / 2.0).length()
+				var a := clampf(n / 2.0 - d, 0.0, 1.0)
+				var rim := clampf(d - (n / 2.0 - 8.0), 0.0, 1.0)
+				var c := Color(1, 1, 1).lerp(Color(0.82, 0.84, 0.9), rim)
+				img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
+		_disc = ImageTexture.create_from_image(img)
+	return _disc
+
+
 static func _chip_texture(w: int) -> ImageTexture:
 	if _chips.has(w):
 		return _chips[w]
