@@ -124,6 +124,12 @@ func _load_board() -> void:
 	var f: Array = _data.focus
 	_focus = Rect2(f[0] * _img.x, f[1] * _img.y, (f[2] - f[0]) * _img.x, (f[3] - f[1]) * _img.y)
 	_cell = float(_data.cell) * _img.x
+	# Spaces are stored in drawing order; index them by their game number.
+	var by_index := []
+	by_index.resize(28)
+	for sp: Dictionary in _data.spaces:
+		by_index[int(sp.i)] = sp
+	_data.spaces = by_index
 	_art.texture = load(dir + "base.jpg")
 	_sprites.clear()
 	for name: String in _data.sprites:

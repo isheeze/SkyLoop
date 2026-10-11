@@ -482,6 +482,7 @@ def export(canvas, layout, tags, plot_sp, sets, cw, W, H):
             sp.save(os.path.join(sdir, "bld_%d_%d.png" % (who, k)))
             sprites["bld_%d_%d" % (who, k)] = [ox, oy]
     n = lambda pt: [round(pt[0] / W, 5), round(pt[1] / H, 5)]
+    layout["spaces"] = sorted(layout["spaces"], key=lambda sp: sp["i"])
     out = {"image": [W, H], "cell": round(cw / W, 5), "spaces": layout["spaces"], "corners": layout["corners"],
            "plots": {str(i): {"price": n(t["price"]), "rent": n(t["rent"]), "bld": n(t["bld"]), "depth": round(t["depth"], 3)}
                      for i, t in tags.items()},

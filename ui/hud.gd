@@ -617,7 +617,6 @@ func roll_dice(values: Array) -> void:
 	_dice.clear()
 	_sheet.visible = true
 	_clear_actions()
-	_title.text = ""
 	_subtitle.text = ""
 	for v: int in values:
 		var d := DieFace.new()
@@ -644,6 +643,14 @@ func hide_dice() -> void:
 	for c in _dice_row.get_children():
 		c.queue_free()
 	_dice.clear()
+
+
+## Whose turn it is, shown while their dice roll and their piece moves, so the panel is
+## never blank between decisions.
+func turn_status(who: int) -> void:
+	_clear_actions()
+	_title.text = "Your turn" if who == human else "%s's turn" % _short_name(who)
+	_subtitle.text = "" if who == human else "Watch the board"
 
 
 func waiting(who: int) -> void:

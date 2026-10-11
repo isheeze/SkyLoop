@@ -36,6 +36,8 @@ var shot_tile := -1
 var menu_shot := ""
 var page_shot := ""
 var board_override := ""  # --board ID: play every match on this painted board (art review)
+var snap_path := ""  # with --queue: screenshot the real flow after --snap-after seconds
+var snap_after := 20.0
 var queue_tier := 0  # with --auto: join this table's queue instead of practice
 var decisions := 0
 var _drift := 0.0
@@ -73,6 +75,10 @@ func _ready() -> void:
 				page_shot = args[i + 1]
 			"--queue":
 				queue_tier = int(args[i + 1])
+			"--snap":
+				snap_path = args[i + 1]
+			"--snap-after":
+				snap_after = float(args[i + 1])
 			"--board":
 				board_override = args[i + 1]
 	_build_world()
@@ -107,6 +113,14 @@ func _ready() -> void:
 			_on_play(queue_tier)
 		else:
 			Net.send({"t": "practice"})
+	elif queue_tier > 0 and snap_path != "":
+		# Real-flow check: join a table like a player would, screenshot after N seconds.
+		await Net.connected
+		await get_tree().create_timer(1.0).timeout
+		_on_play(queue_tier)
+		await get_tree().create_timer(snap_after).timeout
+		shot_path = snap_path
+		await _save_shot()
 	elif menu_shot != "" or page_shot != "":
 		await Net.connected
 		await get_tree().create_timer(1.2).timeout
@@ -484,6 +498,8 @@ func _play(ev: Dictionary) -> void:
 			await _wait(0.5)
 		"turn":
 			hud.refresh()
+			hud.turn_status(ev.p)
+			board.set_active(ev.p)
 			if ev.p == me and not auto:
 				Fx.play("your_turn")
 				Fx.buzz(25)
