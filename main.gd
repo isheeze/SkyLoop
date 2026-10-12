@@ -149,6 +149,17 @@ func _show_page_for_shot(name: String) -> void:
 			modals.level_up(3)
 		"welcome":
 			modals.welcome(Net.profile)
+		"victory", "second":
+			var who := [{"avatar": "a01", "name": "You"}, {"avatar": "a02", "name": "Hamza"},
+				{"avatar": "a03", "name": "Mehwish"}, {"avatar": "a04", "name": "Fatima"}]
+			var won := name == "victory"
+			var st := [{"seat": 0, "avatar": "a01", "name": "You", "worth": 2355}, {"seat": 1, "avatar": "a02", "name": "Hamza", "worth": 2289},
+				{"seat": 2, "avatar": "a03", "name": "Mehwish", "worth": 1915}, {"seat": 3, "avatar": "a04", "name": "Fatima", "worth": 1870}]
+			if not won:
+				st = [st[1], st[0], st[2], st[3]]
+			modals.results({"place": 0 if won else 1, "tier": 1, "standings": st,
+				"rewards": {"coins": 180 if won else 60, "xp": 40 if won else 25, "trophies": 12 if won else 4, "level": 2, "level_before": 2}},
+				who, 0, PLAYER_COLORS, {"xp": 60, "xp_next": 100})
 		"tier2", "tier3", "tier4", "tier5", "tier6":
 			lobby._go(int(name.substr(4)))
 		_:

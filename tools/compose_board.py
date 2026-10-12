@@ -41,6 +41,8 @@ LAWN_UNITS = 10.9
 C = LAWN_UNITS / 2.0
 EDGE = 3.6    # corner centres at C +- EDGE
 PLOT = 1.34   # plot centre distance outside its space
+MARK = 1.12   # corner landmark centre distance (along u and v) outside its corner space
+MARK_W = 1.0  # landmark base width in cells: leaves a small lawn gap to the corner space
 SPECIAL = {0: "payday", 5: "metro", 7: "audit", 14: "jackpot", 19: "windfall", 21: "tax_raid", 25: "permit"}
 PRICES = [0, 60, 60, 70, 100, 0, 100, 0, 110, 140, 140, 150, 180, 180, 0, 190, 220, 220, 230, 0, 260, 0, 260,
           280, 320, 0, 320, 350]
@@ -128,9 +130,12 @@ def dehalo(sprite):
     sat = rgb.max(2) - rgb.min(2)
     pale = (lum > 196) & (sat < 46)
     clear = a[..., 3] < 40
+    # The flood also crosses the contact shadow (cut() paints it one flat colour), so a pale
+    # backdrop rim beyond the shadow goes too.
+    shadow = (rgb[..., 0] == 52) & (rgb[..., 1] == 38) & (rgb[..., 2] == 82)
     reach = clear.copy()
-    for _ in range(60):
-        grown = ndimage.binary_dilation(reach) & (pale | clear)
+    for _ in range(80):
+        grown = ndimage.binary_dilation(reach) & (pale | clear | shadow)
         if (grown == reach).all():
             break
         reach = grown
@@ -419,6 +424,8 @@ def build():
         items.append((u + v, "space", i))
         if i not in SPECIAL:
             items.append((u + ou * PLOT + v + ov * PLOT, "plot", i))
+        if i % 7 == 0:  # the corner's landmark stands out on the lawn, past its space
+            items.append((u + ou * MARK + v + ov * MARK, "mark", i))
     da = [dehalo(cut(q)[0]) for q in quarters(os.path.join(KIT, "decor_a.jpg"))]  # tree, flowers, lamp, bench
     db = [dehalo(cut(q)[0]) for q in quarters(os.path.join(KIT, "decor_b.jpg"))]  # pine, bush, sign, mushrooms
     tree, flowers, lamp, bench = da
@@ -430,11 +437,12 @@ def build():
         su, sv = (ov, ou) if ou == 0 else (ov, ou)  # along the side
         decor += [(tree, qu - 0.18 * abs(ov) - 0.18 * abs(ou), qv - 0.18 * abs(ou) - 0.18 * abs(ov), 0.55),
                   (flowers, qu + 0.22, qv + 0.22, 0.55)]
-    hi2, lo2 = C + EDGE + 1.3, C - EDGE - 1.3
-    decor += [(pine, lo2, lo2, 0.5), (tree, lo2 + 0.55, lo2 - 0.1, 0.62), (pine, lo2 - 0.1, lo2 + 0.6, 0.45),
-              (tree, lo2, hi2, 0.6), (lamp, lo2 + 0.45, hi2 - 0.2, 0.3), (bush, lo2 + 0.3, hi2 + 0.35, 0.42),
-              (tree, hi2, lo2, 0.6), (bench, hi2 - 0.2, lo2 + 0.45, 0.4), (bush, hi2 + 0.35, lo2 + 0.3, 0.42),
-              (flowers, hi2 - 0.55, hi2 - 0.05, 0.45), (shrooms, hi2 - 0.05, hi2 - 0.55, 0.28)]
+    # Corner gardens flank each landmark on both sides (between it and the first plot).
+    for i, (a, b) in ((14, (pine, tree)), (7, (tree, bush)), (21, (bush, tree)), (0, (flowers, shrooms))):
+        (u, v), (ou, ov) = pts[i]
+        mu, mv = u + ou * MARK, v + ov * MARK
+        tall = 0.5 if i in (7, 14, 21) else 0.4
+        decor += [(a, mu + ou * 0.15, mv - ov * 0.95, tall), (b, mu - ou * 0.95, mv + ov * 0.15, tall)]
     for k, d in enumerate(decor):
         items.append((d[1] + d[2], "decor", k))
     items.append((2 * C - 0.01, "centre", -1))
@@ -447,24 +455,20 @@ def build():
             spec = decor[i]
             place_on(canvas, spec[0], fr.p(spec[1], spec[2]), cw * spec[3])
             continue
+        if kind == "mark":
+            (u, v), (ou, ov) = pts[i]
+            mark = {0: marks[0], 7: marks[1], 14: marks[2], 21: marks[3]}[i]
+            place_on(canvas, mark, fr.p(u + ou * MARK, v + ov * MARK), cw * MARK_W)
+            continue
         if kind == "centre":
             warp_onto(canvas, centre_sp, fr.p(C - ci, C - ci), fr.p(C + ci, C - ci), fr.p(C - ci, C + ci))
             continue
         (u, v), (ou, ov) = pts[i]
         if kind == "space":
             if i % 7 == 0:
-                place(canvas, gold, fr.p(u, v), cw * 1.42)
-                mark = {0: marks[0], 7: marks[1], 14: marks[2], 21: marks[3]}[i]
-                # The landmark stands on the back half of its pad (screen-up), pieces use the front.
-                # Outer side of the pad, so it never stands in front of a neighbouring plot.
-                back = (u + ou * 0.08, v + ov * 0.08)
-                place_on(canvas, mark, fr.p(*back), cw * 1.12)
-                if i == 0:
-                    # The front corner's gate stands nearest the camera: pieces wait either side of it.
-                    slots = [fr.p(u + a, v + b) for a, b in ((-0.5, 0.25), (-0.5, -0.05), (0.25, -0.5), (-0.05, -0.5))]
-                else:
-                    slots = [fr.p(u - ou * 0.32 + du * 0.24, v - ov * 0.32 + dv * 0.24) for du, dv in
-                             ((-1, 0), (1, 0), (0, -1), (0, 1))]
+                # A plain, slightly larger space: the landmark stands apart on the lawn outside it.
+                place(canvas, cream, fr.p(u, v), cw * 0.98)
+                slots = [fr.p(u + du * 0.24, v + dv * 0.24) for du, dv in ((-1, 0), (1, 0), (0, -1), (0, 1))]
                 layout["corners"][str(i)] = [[round(x / W, 5), round(y / H, 5)] for x, y in slots]
             else:
                 place(canvas, gold if i in SPECIAL else cream, fr.p(u, v), cw * 0.8)
@@ -549,7 +553,7 @@ def export(canvas, layout, tags, plot_sp, sets, cw, W, H):
                      for i, t in tags.items()},
            "sprites": sprites,
            # Part of the image that must stay on screen: the lawn plus the tallest landmark.
-           "focus": [round(295 / W, 4), round(440 / H, 4), round(1515 / W, 4), round(1360 / H, 4)]}
+           "focus": [round(180 / W, 4), round(340 / H, 4), round(1630 / W, 4), round(1435 / H, 4)]}
     with open(os.path.join(gdir, "board.json"), "w") as f:
         json.dump(out, f, indent=1)
     print("exported", len(out["plots"]), "plots", len(sprites), "sprites")

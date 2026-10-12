@@ -546,17 +546,21 @@ func results(msg: Dictionary, players: Array, my_seat: int, colors: Array, profi
 	var won := place == 0
 	var v := _open(940)
 	var me: Dictionary = players[my_seat] if my_seat < players.size() else {"avatar": "a01"}
-	var top := VBoxContainer.new()
-	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	top.add_theme_constant_override("separation", -40)
+	# The winner's avatar wears the crown: set on the ring's top edge, tipped a little to one side.
+	var top := Control.new()
+	top.custom_minimum_size = Vector2(0, 260 + (128 if won else 0))
 	v.add_child(top)
-	if won:
-		var crown := Kit.icon3d("crown", 170)
-		crown.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		top.add_child(crown)
 	var av := Kit.avatar(str(me.avatar), 260, Kit.GOLD if won else Color.WHITE, 14)
-	av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	av.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	av.position = Vector2(-130, -260)
 	top.add_child(av)
+	if won:
+		var crown := Kit.icon3d("crown", 176)
+		crown.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		crown.position = Vector2(-88 + 30, 0)
+		crown.pivot_offset = Vector2(88, 88)
+		crown.rotation = deg_to_rad(14)
+		top.add_child(crown)
 	var head: String = ["VICTORY!", "2nd place", "3rd place", "4th place"][place]
 	var hl := Kit.label(head, 104 if won else 84, Kit.GOLD_LIP if won else Kit.INK, true, 700)
 	hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
