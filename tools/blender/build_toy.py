@@ -629,44 +629,9 @@ def _slab(name, top, bottom, z_top, z_bot, mat, cap=True):
     return C._add(ob, mat, 0, weighted=False)
 
 
-def _ribbon(x, y, ox, oy, along_x, width, mat, shift=0.0):
-    """A falling-water ribbon: a smooth curved strip from the lip (z 0) down to z -2.9."""
-    import bpy
-    import bmesh
-    mesh = bpy.data.meshes.new("fall")
-    bm = bmesh.new()
-    rows = []
-    for k in range(16):
-        t = k / 15
-        z = -0.05 - t * 2.85
-        out = 0.06 + 0.42 * t ** 1.4
-        w = width * (1.0 + 0.35 * t)
-        row = []
-        for side in (-1, 1):
-            d = side * w / 2 + shift
-            px = x + ox * out + (d if along_x else 0)
-            py = y + oy * out + (0 if along_x else d)
-            row.append(bm.verts.new((px, py, z)))
-        rows.append(row)
-    for k in range(15):
-        a, b = rows[k], rows[k + 1]
-        f = (a[0], a[1], b[1], b[0]) if along_x else (a[1], a[0], b[0], b[1])
-        bm.faces.new(f)
-    bm.to_mesh(mesh)
-    bm.free()
-    ob = bpy.data.objects.new("fall", mesh)
-    bpy.context.collection.objects.link(ob)
-    s = ob.modifiers.new("thick", "SOLIDIFY")
-    s.thickness = 0.06
-    return C._add(ob, mat, 0, weighted=False)
-
-
-
-
-
 def island(theme):
     """The floating island: a thick top with a soft lip, layered cliffs tapering to a point,
-    boulders, and two waterfalls (material Water, animated in game) on the faces the camera sees."""
+    and boulders."""
     P = THEMES[theme]
     C.reset()
     n = 96
@@ -695,18 +660,6 @@ def island(theme):
         c, s = math.cos(a), math.sin(a)
         r = (abs(c) ** 4 + abs(s) ** 4) ** (-0.25) * half
         C.ball(rnd.uniform(0.13, 0.24), (c * r * 0.985, s * r * 0.985, z), rock[k % 3], scale=(1.2, 1.0, 0.8), seg=10)
-    water, foam = C.named("Water", P["water"], 0.15), C.M("#ffffff", 0.6)
-    for (x, y, along_x) in ((1.6, -4.7, True), (4.7, -1.4, False)):
-        ox, oy = (0.0, -1.0) if along_x else (1.0, 0.0)
-        _ribbon(x, y, ox, oy, along_x, 0.48, water)
-        for k in range(5):
-            d = 0.11 * (k - 2)
-            C.ball(0.075 + 0.02 * (k % 2), (x + ox * 0.12 + (d if along_x else 0), y + oy * 0.12 + (0 if along_x else d),
-                                            -0.1), foam, seg=10)
-        for k in range(5):
-            d = 0.17 * (k - 2)
-            C.ball(0.17 + 0.04 * (k % 2), (x + ox * 0.5 + (d if along_x else 0), y + oy * 0.5 + (0 if along_x else d),
-                                           -2.9 + 0.05 * (k % 2)), foam, seg=12)
     for k in range(44):
         if k % 3:
             continue

@@ -80,7 +80,6 @@ func setup(game, player_colors: Array, theme_id := "town") -> void:
 	_active = -1
 	_put("%s/island" % theme.id, self, Vector3.ZERO)
 	_put("%s/centre" % theme.id, self, Vector3.ZERO)
-	_spawn_mist()
 	for i in Board.TILE_COUNT:
 		_build_tile(i)
 	for pi in g.players.size():
@@ -263,41 +262,6 @@ func _stripe_label(root: Node3D, f: Vector3) -> Label3D:
 	l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(l)
 	return l
-
-
-## Soft spray rising where each waterfall lands (positions match build_toy.py's island).
-func _spawn_mist() -> void:
-	for at: Vector3 in [Vector3(1.6, -2.9, 5.2), Vector3(5.2, -2.9, 1.4)]:
-		var p := CPUParticles3D.new()
-		p.amount = 14
-		p.lifetime = 1.8
-		p.direction = Vector3.UP
-		p.spread = 35.0
-		p.initial_velocity_min = 0.25
-		p.initial_velocity_max = 0.5
-		p.gravity = Vector3.ZERO
-		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
-		p.emission_sphere_radius = 0.3
-		p.scale_amount_min = 0.7
-		p.scale_amount_max = 1.4
-		var curve := Curve.new()
-		curve.add_point(Vector2(0, 0.4))
-		curve.add_point(Vector2(0.4, 1.0))
-		curve.add_point(Vector2(1, 0.0))
-		p.scale_amount_curve = curve
-		var m := SphereMesh.new()
-		m.radius = 0.12
-		m.height = 0.24
-		m.radial_segments = 8
-		m.rings = 4
-		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.albedo_color = Color(1, 1, 1, 0.55)
-		m.material = mat
-		p.mesh = m
-		p.position = at
-		add_child(p)
 
 
 func _spawn_balloons() -> void:

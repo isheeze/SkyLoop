@@ -35,8 +35,7 @@ Players: gold `#ffc23d`, coral `#ff5d73`, green `#3ddc97`, blue `#5cc8ff`.
 - 28 spaces on an 8 x 8 ring. Tiles are thick bevelled slabs (0.94 wide, 0.14 tall), cream on
   top, with the district stripe across the front edge.
 - The centre is clean grass with one hero piece: the golden dice fountain.
-- Grass border around the ring, a few round trees at the corners only. Island cliff below with
-  two waterfalls.
+- Grass border around the ring, a few round trees at the corners only. Island cliff below.
 
 ## Tile layout (seen from the camera)
 
@@ -83,8 +82,3 @@ tint and sunlight (`game3d/themes.gd`).
 | Big City | grey paving, lawn inside | slate | topiary, round | planters | white |
 | Future City | pearl, mint lawn | violet with glowing seams | crystals, light orbs | crystals | white, neon lamps |
 
-## Water
-
-Every surface on the `Water` material uses `game3d/water.gdshader`: soft vertical streaks with
-pulses running down the waterfalls, rings drifting across the fountain pool. Spray particles
-rise where the falls land.
