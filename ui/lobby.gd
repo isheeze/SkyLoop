@@ -252,7 +252,7 @@ func _tier_card(t: int) -> Control:
 	v.add_theme_constant_override("separation", 0)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(v)
-	# Banner: a window onto the city's painted board, with its name over a soft shade.
+	# Banner: a window onto the island's board, with the city's name over a soft shade.
 	var theme: Dictionary = Themes.for_tier(t)
 	var banner := Panel.new()
 	banner.custom_minimum_size = Vector2(0, 236)
@@ -265,14 +265,10 @@ func _tier_card(t: int) -> Control:
 	banner.add_theme_stylebox_override("panel", bs)
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(banner)
-	var bdir := "sky_game" if str(theme.id) == "town" else str(theme.id) + "_game"
-	var art_path := "res://art/boards/%s/base.jpg" % bdir
+	var art_path := "res://art/ui/table_banner.jpg"
 	if ResourceLoader.exists(art_path):
 		var art := TextureRect.new()
-		var at := AtlasTexture.new()
-		at.atlas = load(art_path)
-		at.region = Rect2(380, 620, 1040, 470)  # the board's heart: centrepiece and inner loop
-		art.texture = at
+		art.texture = load(art_path)
 		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

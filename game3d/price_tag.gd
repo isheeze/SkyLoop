@@ -17,6 +17,7 @@ func _init() -> void:
 	_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_sprite.shaded = false
 	_sprite.render_priority = 1
+	_sprite.no_depth_test = true  # a label, not scenery: never hidden behind a building
 	_sprite.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_sprite)
 	_label = Label3D.new()
@@ -29,6 +30,7 @@ func _init() -> void:
 	_label.pixel_size = 0.0034
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_label.render_priority = 2
+	_label.no_depth_test = true
 	_label.position = Vector3(0, 0, 0.001)
 	add_child(_label)
 

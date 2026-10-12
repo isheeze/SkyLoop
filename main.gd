@@ -1,33 +1,49 @@
-extends Node
-## Main scene: the painted sky, the painted board, the lobby and the HUD. Every
+extends Node3D
+## Main scene: the painted sky, the 3D island board, the camera, the lobby and the HUD. Every
 ## match is played through the game service (Net autoload): the service decides, this scene
 ## animates what happened and sends the player's choices back.
 ##
 ## Self-test flags (after `--`): --auto (practice match, bots play my seat too, fast),
 ## --shot PATH --shot-after N (screenshot at my Nth decision, or the results with --auto),
-## --menu-shot PATH, --page-shot NAME:PATH (lobby page or popup), --board ID, --clean.
+## --menu-shot PATH, --page-shot NAME:PATH (lobby page or popup), --clean.
 
 const Board = preload("res://core/board.gd")
 const Game = preload("res://core/game.gd")
 const Bot = preload("res://core/bot.gd")
 const Economy = preload("res://core/economy.gd")
-const Board2D = preload("res://game2d/board2d.gd")
+const Board3D = preload("res://game3d/board3d.gd")
+const Dice3D = preload("res://game3d/dice3d.gd")
 const Hud = preload("res://ui/hud.gd")
 const Lobby = preload("res://ui/lobby.gd")
 const Modals = preload("res://ui/modals.gd")
-const Themes = preload("res://game3d/themes.gd")
 
 const PLAYER_COLORS := [Color("ffc23d"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
+## The toy-diorama view (docs/STYLE_GUIDE.md): an orthographic camera turned 45 degrees and
+## pitched 47 down, so every tile is drawn the same size and all four sides read alike.
+const CAM_YAW := 45.0
+const CAM_PITCH := -47.0
+const CAM_DIST := 30.0
+## World width the camera shows across the free area: the island's diagonal in the lobby; in a
+## match just the ring and its corner landmarks (the bare grass corners may crop), so tiles are big.
+const VIEW_W := 13.4
+const VIEW_W_MATCH := 11.6
 
 var g
 var me := 0  # my seat in the current match
 var meta: Array = []  # per seat {name, avatar, level, country}
 var bot_rng := RandomNumberGenerator.new()
-var board: Control
+var board: Node3D
+var dice3d: Node3D
+var camera: Camera3D
 var hud: Control
 var lobby: Control
 var modals: Control
 var _sky: TextureRect
+var _env: Environment
+var _key: DirectionalLight3D
+var _shake := 0.0  # camera shake strength, decays to 0
+var _punch := 0.0  # camera push-in for big moments, decays to 0
+var _orbit := 0.0  # lobby: drives the camera's gentle sway
 
 var auto := false
 var shot_path := ""
@@ -35,7 +51,6 @@ var shot_after := 1
 var shot_tile := -1
 var menu_shot := ""
 var page_shot := ""
-var board_override := ""  # --board ID: play every match on this painted board (art review)
 var snap_path := ""  # with --queue: screenshot the real flow after --snap-after seconds
 var snap_after := 20.0
 var queue_tier := 0  # with --auto: join this table's queue instead of practice
@@ -43,8 +58,6 @@ var decisions := 0
 var _drift := 0.0
 
 var _in_match := false
-var _lobby_tier := 1  # the table showing in the lobby carousel
-var _practice_tier := 1  # practice matches use the look of the table picked in the lobby
 var _greeted := false
 var _room := -1
 var _tier := 1
@@ -79,8 +92,6 @@ func _ready() -> void:
 				snap_path = args[i + 1]
 			"--snap-after":
 				snap_after = float(args[i + 1])
-			"--board":
-				board_override = args[i + 1]
 	_build_world()
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -97,7 +108,6 @@ func _ready() -> void:
 	lobby.setup(modals)
 	lobby.play.connect(_on_play)
 	lobby.practice.connect(_on_practice)
-	lobby.tier_changed.connect(_on_lobby_tier)
 	modals.results_closed.connect(_on_results_closed)
 	modals.matchmaking_cancelled.connect(func() -> void: pass)
 	Net.connected.connect(_on_net_ready)
@@ -167,7 +177,26 @@ func _show_page_for_shot(name: String) -> void:
 
 
 func _build_world() -> void:
-	# The painted sky, and in front of it the painted board with the game drawn on top.
+	# The painted sky is a 2D layer behind the 3D scene.
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CANVAS
+	env.background_canvas_max_layer = -1
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color("dcecff")
+	env.ambient_light_energy = 0.45
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_exposure = 1.0
+	env.glow_enabled = true
+	env.glow_intensity = 0.25
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.4
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.2
+	env.adjustment_contrast = 1.08
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)
+
 	var sky_layer := CanvasLayer.new()
 	sky_layer.layer = -1
 	add_child(sky_layer)
@@ -177,11 +206,52 @@ func _build_world() -> void:
 	_sky.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_sky.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	sky_layer.add_child(_sky)
-	var board_layer := CanvasLayer.new()
-	board_layer.layer = 0
-	add_child(board_layer)
-	board = Board2D.new()
-	board_layer.add_child(board)
+
+	# Soft late-afternoon sun: warm, low contrast, light shadows.
+	var key := DirectionalLight3D.new()
+	key.light_color = Color("fff0d6")
+	key.light_energy = 1.15
+	key.rotation_degrees = Vector3(-50, -10, 0)
+	key.shadow_enabled = true
+	key.shadow_opacity = 0.7
+	key.shadow_blur = 1.5
+	key.directional_shadow_max_distance = 26.0
+	# The board is small: one orthogonal shadow map instead of four cascades keeps the shadow
+	# pass from re-drawing the whole city four times on phones.
+	key.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	add_child(key)
+	_env = env
+	_key = key
+	_apply_quality()
+	Fx.graphics_changed.connect(_apply_quality)
+	var fill := DirectionalLight3D.new()
+	fill.light_color = Color("c9d6ff")
+	fill.light_energy = 0.45
+	fill.rotation_degrees = Vector3(-35, 150, 0)
+	add_child(fill)
+
+	board = Board3D.new()
+	add_child(board)
+	dice3d = Dice3D.new()
+	add_child(dice3d)
+
+	camera = Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.keep_aspect = Camera3D.KEEP_WIDTH
+	camera.near = 1.0
+	camera.far = 80.0
+	add_child(camera)
+	_place_camera()
+
+
+## High: shadows, glow, 2x MSAA. Low: none of those and 3D at 75% resolution.
+func _apply_quality() -> void:
+	var low := Fx.low_graphics()
+	_key.shadow_enabled = not low
+	_env.glow_enabled = not low
+	var vp := get_viewport()
+	vp.msaa_3d = Viewport.MSAA_DISABLED if low else Viewport.MSAA_2X
+	vp.scaling_3d_scale = 0.75 if low else 1.0
 	Engine.max_fps = 60
 
 
@@ -192,29 +262,55 @@ func _process(delta: float) -> void:
 	_sky.pivot_offset = vp / 2
 	_sky.scale = Vector2.ONE * 1.1
 	_sky.position = Vector2(sin(_drift * 0.05) * 30.0, cos(_drift * 0.04) * 12.0)
-	# In a match the board fits the space between the player cards and the action panel.
+	if not _in_match:
+		_orbit += delta * 4.0
+	_shake = move_toward(_shake, 0.0, delta * 0.9)
+	_punch = move_toward(_punch, 0.0, delta * 0.5)
+	_place_camera()
+
+
+## Frames the board in the free space: between the player cards and the action panel in a match,
+## the middle of the screen in the lobby. Orthographic, so framing is just size and offset.
+func _place_camera() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var free := Rect2(0, vp.y * 0.26, vp.x, vp.y * 0.36)
 	if hud != null and hud.visible:
 		var ins: Vector2 = hud.board_insets()
-		board.set_free_rect(Rect2(0, ins.x, vp.x, maxf(vp.y - ins.x - ins.y, vp.y * 0.4)))
-	else:
-		board.set_free_rect(Rect2(0, vp.y * 0.18, vp.x, vp.y * 0.62))
+		free = Rect2(0, ins.x, vp.x, maxf(vp.y - ins.x - ins.y, vp.y * 0.4))
+	var view := VIEW_W_MATCH if _in_match else VIEW_W
+	var width := view * (1.0 - 0.12 * ease(_punch, 0.5)) * vp.x / maxf(free.size.x, 1.0)
+	var per_px := width / maxf(vp.x, 1.0)
+	# Short free areas (tablets, landscape) frame by height instead.
+	var need_h := view * 0.75  # the board's diamond and its landmarks (the cliff may tuck under the panel)
+	if need_h / per_px > free.size.y:
+		per_px = need_h / free.size.y
+		width = per_px * vp.x
+	camera.size = width
+	# Lobby: a gentle sway (buildings face the camera's side, so no full orbit).
+	var yaw := CAM_YAW + (0.0 if _in_match else sin(_orbit * 0.05) * 9.0)
+	var b := Basis.from_euler(Vector3(deg_to_rad(CAM_PITCH), deg_to_rad(yaw), 0.0))
+	var jitter := Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * _shake * 0.08
+	camera.basis = b
+	camera.position = b * (Vector3(0, 0, CAM_DIST) + jitter)
+	# Shift the picture so the board's centre lands in the middle of the free area.
+	# A little above the middle: the cliff below can run under the action panel.
+	camera.v_offset = (free.position.y + free.size.y * (0.44 if _in_match else 0.5) - vp.y * 0.5) * per_px
 
 
-## Kept for event code: the 2D board is always fully in view.
-func _focus_on(_point: Vector2) -> void:
-	pass  # the whole board is always in view
+## Kept for event code: the isometric camera always shows the whole board.
+func _focus_on(_world: Vector3) -> void:
+	pass
 
 
 func _show_targets(pd: Dictionary) -> void:
 	if pd.type != "move" and pd.type != "metro":
 		return
 	var list := []
-	for s: int in pd.options:
-		var pv: Dictionary = g.landing_preview(pd.player, s)
-		pv.steps = s
+	for st: int in pd.options:
+		var pv: Dictionary = g.landing_preview(pd.player, st)
+		pv.steps = st
 		list.append(pv)
 	board.show_targets(list)
-
 
 
 func _save_shot() -> void:
@@ -285,7 +381,8 @@ func _demo_board() -> void:
 		demo.submit(Bot.decide(demo, Bot.PERSONAS.values()[demo.pending.player % 3], rng))
 	demo.events.clear()
 	g = demo
-	board.setup(g, PLAYER_COLORS, _board_for(_lobby_tier))
+	board.setup(g, PLAYER_COLORS)
+	board.set_tags_visible(false)  # the lobby shows the island, not prices
 
 
 func _on_play(tier: int) -> void:
@@ -293,26 +390,7 @@ func _on_play(tier: int) -> void:
 	Net.send({"t": "queue", "tier": tier})
 
 
-## Swiping the carousel shows that city's island behind it (rebuilt once the swipe settles).
-func _on_lobby_tier(t: int) -> void:
-	_lobby_tier = t
-	await get_tree().create_timer(0.3).timeout
-	if _lobby_tier == t and not _in_match and lobby.visible:
-		_demo_board()
-
-
-## Each table has its own painted world; tables without one yet use the hill town.
-func _board_for(tier: int) -> String:
-	if board_override != "":
-		return board_override
-	# Table themes: town (the sky island), forest, desert, city, metro, future.
-	var id := str(Themes.for_tier(tier).id)
-	var dir := "sky_game" if id == "town" else id + "_game"
-	return dir if ResourceLoader.exists("res://art/boards/%s/board.json" % dir) else "sky_game"
-
-
 func _on_practice() -> void:
-	_practice_tier = _lobby_tier
 	modals.matchmaking(0, Net.profile)
 	Net.send({"t": "practice"})
 
@@ -353,8 +431,8 @@ func _start_match(msg: Dictionary) -> void:
 	if g == null:
 		push_error("bad snapshot")
 		return
-	board.setup(g, PLAYER_COLORS, _board_for(_tier if _tier > 0 else _practice_tier),
-		meta.map(func(m: Dictionary) -> String: return str(m.get("avatar", "a01"))))
+	board.setup(g, PLAYER_COLORS)
+	board.set_life_visible(false)
 	_apply_cosmetics()
 	hud.setup(g, PLAYER_COLORS, me, meta)
 	hud.show_headline(g.headline, g.next_headline)
@@ -377,6 +455,8 @@ func _apply_cosmetics() -> void:
 		var it := Economy.shop_item(token_id)
 		if not it.is_empty():
 			board.tint_token(me, Color(it.color))
+	var dice_id := str(eq.get("dice", ""))
+	dice3d.skin = Color(Economy.shop_item(dice_id).color) if dice_id != "" else Color.WHITE
 
 
 ## Plays queued server updates one at a time; acks each so the server keeps everyone in step.
@@ -544,9 +624,12 @@ func _play(ev: Dictionary) -> void:
 				await hud.wait_roll()
 			Fx.play("dice")
 			Fx.buzz(35, 0.4)
+			# On the park path in front of the fountain, toward the camera.
+			dice3d.throw(ev.dice, Vector3(1.55, 0.05, 1.55))
 			await hud.roll_dice(ev.dice)
 		"move":
 			board.clear_targets()
+			dice3d.clear()
 			await board.move_token(ev.p, ev.from, ev.to, ev.get("jump", false))
 			Fx.play("land")
 			Fx.buzz(15, 0.3)
@@ -559,7 +642,7 @@ func _play(ev: Dictionary) -> void:
 			hud.refresh()
 			_coins_for(ev)
 			if ev.why == "rent" and ev.from == me and amount >= 150:
-				board.shake(0.6)
+				_shake = 0.6
 				hud.callout("-$%d" % amount, Color("ff5d73"), 104)
 			elif ev.why == "rent" and ev.to == me and amount >= 100:
 				hud.callout("+$%d" % amount, Color("ffc23d"), 104)
@@ -575,7 +658,8 @@ func _play(ev: Dictionary) -> void:
 					Fx.play("jackpot")
 					Fx.buzz(150, 0.8)
 					hud.callout("JACKPOT!", Color("ffc23d"))
-					board.confetti(board.tile_point(14))
+					board.confetti(Board3D.tile_center(14))
+					_punch = 1.0
 					hud.toast("JACKPOT! %s takes $%d" % [_name(ev.to), amount], Color("ffd35c"))
 					await _wait(0.7)
 				"tax_raid":
@@ -599,12 +683,13 @@ func _play(ev: Dictionary) -> void:
 			if ev.level == Board.LANDMARK_LEVEL:
 				Fx.play("celebrate")
 				Fx.buzz(160, 0.8)
-				board.confetti(board.tile_point(ev.tile), 110)
+				_punch = 1.0
+				board.confetti(Board3D.tile_center(ev.tile), 110)
 				hud.callout("LANDMARK!", (PLAYER_COLORS[ev.p] as Color).lightened(0.1))
 				await _wait(1.0)
 			elif ev.p == me:
 				Fx.play("levelup", -4.0)
-				board.float_text(board.tile_point(ev.tile), "LEVEL %d" % ev.level,
+				board.float_text(Board3D.tile_center(ev.tile) + Vector3(0, 0.5, 0), "LEVEL %d" % ev.level,
 					Color("ffc23d"))
 			var what: String = Board.DISTRICTS[Board.TILES[ev.tile].district].landmark \
 				if ev.level == Board.LANDMARK_LEVEL else "level %d" % ev.level
@@ -648,7 +733,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		pos = event.position
 	else:
 		return
-	var tile: int = board.tile_at_screen(pos)
+	var origin := camera.project_ray_origin(pos)
+	var dir := camera.project_ray_normal(pos)
+	if absf(dir.y) < 0.001:
+		return
+	var tile := Board3D.tile_at(origin + dir * ((Board3D.TILE_TOP - origin.y) / dir.y))
 	# Tapping a highlighted destination makes that move.
 	var pd: Dictionary = _pending
 	if tile >= 0 and _in_match and int(pd.get("player", -1)) == me and (pd.type == "move" or pd.type == "metro"):
@@ -678,21 +767,21 @@ func _notification(what: int) -> void:
 func _coins_for(ev: Dictionary) -> void:
 	var amount: int = ev.amount
 	var n := clampi(amount / 25, 3, 14)
-	var from := Vector2.INF
-	var to := Vector2.INF
+	var from := Vector3.INF
+	var to := Vector3.INF
 	if ev.from >= 0:
 		from = board.token_position(ev.from)
 	if ev.to >= 0:
 		to = board.token_position(ev.to)
 	match ev.why:
 		"salary":
-			from = board.tile_point(0)
+			from = Board3D.tile_center(0)
 		"jackpot":
-			from = board.tile_point(14)
+			from = Board3D.tile_center(14)
 		"windfall":
-			from = board.tile_point(19)
+			from = Board3D.tile_center(19)
 		"tax_raid", "audit":
-			to = board.tile_point(14)
-	if from == Vector2.INF or to == Vector2.INF or from.distance_to(to) < 4.0:
+			to = Board3D.tile_center(14)
+	if from == Vector3.INF or to == Vector3.INF or from.distance_to(to) < 0.05:
 		return
 	board.coin_flight(from, to, n)

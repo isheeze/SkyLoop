@@ -292,7 +292,27 @@ def export(path):
     _parts = []
 
 
+## Materials the game recolours at runtime stay separate (named slots): Owner (roof, flag,
+## pawn), Stripe (district colour on a tile), Wall (a building's wall tint, varied per tile).
+KEEP = ("Owner", "Stripe", "Wall")
+
+
+def named(name, hexcol, rough=0.6):
+    """A material the game finds by name and recolours (see KEEP)."""
+    if name in _mats:
+        return _mats[name]
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    b = m.node_tree.nodes["Principled BSDF"]
+    b.inputs["Base Color"].default_value = (*lin(hexcol), 1.0)
+    b.inputs["Roughness"].default_value = rough
+    _mats[name] = m
+    return m
+
+
 def _is_plain(m):
+    if m.name.startswith(KEEP):
+        return False
     b = m.node_tree.nodes["Principled BSDF"]
     return (b.inputs["Metallic"].default_value < 0.05 and b.inputs["Emission Strength"].default_value <= 0
             and b.inputs["Alpha"].default_value >= 1.0)

@@ -1,6 +1,5 @@
 extends RefCounted
-## The look of each table: ground, tiles, frame, sky, light and the art kit its buildings and
-## centrepiece come from. Tables climb from a small town to a futuristic city.
+## Each table's name and colours (lobby cards). Tables climb from a small town to a futuristic city.
 
 const THEMES := {
 	"town": {
@@ -70,10 +69,3 @@ static func get_theme(id: String) -> Dictionary:
 	t.id = id if THEMES.has(id) else "city"
 	return t
 
-
-## A theme's model if it has one, else the shared city kit's.
-static func model(theme_id: String, name: String) -> String:
-	var own := "res://art/themes/%s/%s.glb" % [theme_id, name]
-	if ResourceLoader.exists(own):
-		return own
-	return "res://art/models/%s.glb" % name
