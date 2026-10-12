@@ -65,7 +65,7 @@ Classic chunky pawn, glossy, in the player's colour, with a white rim on the bas
 
 ## Camera and light
 
-Orthographic, square to the board, pitched 42 degrees down. Warm key light (`#fff0d6`, from the
+Orthographic, turned 45 degrees and pitched 47 down (three-quarter view). Warm key light (`#fff0d6`, from the
 top left), cool fill, shadows on, saturation +15%, no fog.
 
 ## Cities (one per table)
