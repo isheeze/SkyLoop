@@ -67,3 +67,24 @@ Classic chunky pawn, glossy, in the player's colour, with a white rim on the bas
 
 Orthographic, square to the board, pitched 42 degrees down. Warm key light (`#fff0d6`, from the
 top left), cool fill, shadows on, saturation +15%, no fog.
+
+## Cities (one per table)
+
+Every table shares the board kit (tiles, buildings, corners, pawns) and gets its own island and
+park (`art/toy/<theme>/`, palettes in `THEMES` in `tools/blender/build_toy.py`), wall tints, sky
+tint and sunlight (`game3d/themes.gd`).
+
+| Table | Island top | Cliff | Park trees | Rim | Paths |
+|---|---|---|---|---|---|
+| Small Town | green | warm earth | round, pine, blossom | flower bushes | cream |
+| Forest | deep green | dark earth | pines, oaks, red mushrooms | little pines | wood |
+| Desert | sand | orange sandstone | palms, cacti | cacti, rocks | sandstone |
+| City | warm paving, lawn inside | terracotta | round, topiary, blossom | planters | brick red |
+| Big City | grey paving, lawn inside | slate | topiary, round | planters | white |
+| Future City | pearl, mint lawn | violet with glowing seams | crystals, light orbs | crystals | white, neon lamps |
+
+## Water
+
+Every surface on the `Water` material uses `game3d/water.gdshader`: soft vertical streaks with
+pulses running down the waterfalls, rings drifting across the fountain pool. Spray particles
+rise where the falls land.

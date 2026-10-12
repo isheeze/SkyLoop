@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ceqio4gg4n238"
-path="res://.godot/imported/island.glb-fcb9c168c16be05e095202c2c6a37602.scn"
+uid="uid://ck2443hee00te"
+path="res://.godot/imported/centre.glb-6a645da26d2fa26d2612b9618fa9634f.scn"
 
 [deps]
 
-source_file="res://art/toy/island.glb"
-dest_files=["res://.godot/imported/island.glb-fcb9c168c16be05e095202c2c6a37602.scn"]
+source_file="res://art/toy/future/centre.glb"
+dest_files=["res://.godot/imported/centre.glb-6a645da26d2fa26d2612b9618fa9634f.scn"]
 
 [params]
 

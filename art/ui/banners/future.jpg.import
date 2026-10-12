@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cvunfvsy14f1l"
-path="res://.godot/imported/table_banner.jpg-a0854a0a058f65a8525fddcee99ae0ae.ctex"
+uid="uid://bj4vtspcf5so6"
+path="res://.godot/imported/future.jpg-1bd193ea746bf7995aa157fc28874b8b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/ui/table_banner.jpg"
-dest_files=["res://.godot/imported/table_banner.jpg-a0854a0a058f65a8525fddcee99ae0ae.ctex"]
+source_file="res://art/ui/banners/future.jpg"
+dest_files=["res://.godot/imported/future.jpg-1bd193ea746bf7995aa157fc28874b8b.ctex"]
 
 [params]
 

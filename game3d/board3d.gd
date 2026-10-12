@@ -11,6 +11,8 @@ const Board = preload("res://core/board.gd")
 const Models = preload("res://game3d/models.gd")
 const PriceTag = preload("res://game3d/price_tag.gd")
 const FONT = preload("res://art/fonts/Fredoka.ttf")
+const Themes = preload("res://game3d/themes.gd")
+const WATER = preload("res://game3d/water.gdshader")
 
 const KIT := "res://art/toy/%s.glb"
 const TILE := 1.0
@@ -25,12 +27,11 @@ const CORNERS := {Board.Kind.PAYDAY: "c_payday", Board.Kind.AUDIT: "c_audit", Bo
 const SPECIAL_PROPS := {Board.Kind.METRO: "s_metro", Board.Kind.WINDFALL: "s_windfall",
 	Board.Kind.PERMIT_OFFICE: "s_permit"}
 const SPECIAL_STRIPE := Color("ffd23f")
-## Wall tints, varied per tile so a street doesn't look copy-pasted.
-const WALLS := [Color("fff4e2"), Color("fde6d8"), Color("e8f4ea"), Color("eae6fb"), Color("e3f1fb"), Color("fff0c8")]
 const INK := Color("1d2340")
 
 var g
 var colors: Array = []
+var theme: Dictionary = Themes.get_theme("town")
 
 var _tiles: Array = []  # per tile: {root, front, building, label}
 var _tokens: Array = []
@@ -63,9 +64,11 @@ func _process(delta: float) -> void:
 		n.position = Vector3(cos(a) * l.lane, l.h + sin(_time * 0.8 + l.lane) * 0.15, sin(a) * l.lane)
 
 
-func setup(game, player_colors: Array) -> void:
+## theme_id picks the table's island and park (art/toy/<id>) and its wall tints.
+func setup(game, player_colors: Array, theme_id := "town") -> void:
 	g = game
 	colors = player_colors
+	theme = Themes.get_theme(theme_id)
 	for c in get_children():
 		c.queue_free()
 	_tiles.clear()
@@ -75,8 +78,9 @@ func setup(game, player_colors: Array) -> void:
 	_life.clear()
 	_pot_tag = null
 	_active = -1
-	_put("island", self, Vector3.ZERO)
-	_put("centre", self, Vector3.ZERO)
+	_put("%s/island" % theme.id, self, Vector3.ZERO)
+	_put("%s/centre" % theme.id, self, Vector3.ZERO)
+	_spawn_mist()
 	for i in Board.TILE_COUNT:
 		_build_tile(i)
 	for pi in g.players.size():
@@ -173,6 +177,8 @@ static func _paint(n: Node, colors_by_name: Dictionary) -> void:
 			if m.resource_name.begins_with("Painted") and not m.vertex_color_use_as_albedo:
 				m.vertex_color_use_as_albedo = true
 				m.vertex_color_is_srgb = false
+			if m.resource_name.begins_with("Water"):
+				mi.set_surface_override_material(s, _water(m.albedo_color))
 			for key: String in colors_by_name:
 				if m.resource_name.begins_with(key):
 					mi.set_surface_override_material(s, _tint(m, colors_by_name[key]))
@@ -181,6 +187,17 @@ static func _paint(n: Node, colors_by_name: Dictionary) -> void:
 
 
 ## One shared material per (material, colour), so a board full of red roofs is one material.
+## Flowing water in the kit's water colour (one material per colour).
+static func _water(c: Color) -> ShaderMaterial:
+	var key := "Water:%s" % c.to_html()
+	if not _tinted.has(key):
+		var w := ShaderMaterial.new()
+		w.shader = WATER
+		w.set_shader_parameter("water_color", c)
+		_tinted[key] = w
+	return _tinted[key]
+
+
 static func _tint(m: BaseMaterial3D, c: Color) -> BaseMaterial3D:
 	var key := "%s:%s" % [m.resource_name, c.to_html()]
 	if not _tinted.has(key):
@@ -248,6 +265,41 @@ func _stripe_label(root: Node3D, f: Vector3) -> Label3D:
 	return l
 
 
+## Soft spray rising where each waterfall lands (positions match build_toy.py's island).
+func _spawn_mist() -> void:
+	for at: Vector3 in [Vector3(1.6, -2.9, 5.2), Vector3(5.2, -2.9, 1.4)]:
+		var p := CPUParticles3D.new()
+		p.amount = 14
+		p.lifetime = 1.8
+		p.direction = Vector3.UP
+		p.spread = 35.0
+		p.initial_velocity_min = 0.25
+		p.initial_velocity_max = 0.5
+		p.gravity = Vector3.ZERO
+		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		p.emission_sphere_radius = 0.3
+		p.scale_amount_min = 0.7
+		p.scale_amount_max = 1.4
+		var curve := Curve.new()
+		curve.add_point(Vector2(0, 0.4))
+		curve.add_point(Vector2(0.4, 1.0))
+		curve.add_point(Vector2(1, 0.0))
+		p.scale_amount_curve = curve
+		var m := SphereMesh.new()
+		m.radius = 0.12
+		m.height = 0.24
+		m.radial_segments = 8
+		m.rings = 4
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(1, 1, 1, 0.55)
+		m.material = mat
+		p.mesh = m
+		p.position = at
+		add_child(p)
+
+
 func _spawn_balloons() -> void:
 	for k in 2:
 		var path := "res://art/models/balloon_%s.glb" % ["pink", "blue"][k]
@@ -312,7 +364,7 @@ func _apply_tile(i: int, animate: bool) -> void:
 		b.scale = Vector3.ONE * 1.4
 	else:
 		var lvl := clampi(want, 0, 5)
-		b = _put("b%d" % lvl, e.root, at, {"Owner": colors[o], "Wall": WALLS[(i * 5) % WALLS.size()]}, f)
+		b = _put("b%d" % lvl, e.root, at, {"Owner": colors[o], "Wall": theme.walls[(i * 5) % theme.walls.size()]}, f)
 		b.scale = Vector3.ONE * BUILDING_SCALE
 	e.building = b
 	if animate:

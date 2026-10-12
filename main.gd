@@ -5,7 +5,7 @@ extends Node3D
 ##
 ## Self-test flags (after `--`): --auto (practice match, bots play my seat too, fast),
 ## --shot PATH --shot-after N (screenshot at my Nth decision, or the results with --auto),
-## --menu-shot PATH, --page-shot NAME:PATH (lobby page or popup), --clean.
+## --menu-shot PATH, --page-shot NAME:PATH (lobby page or popup), --theme ID, --clean.
 
 const Board = preload("res://core/board.gd")
 const Game = preload("res://core/game.gd")
@@ -13,6 +13,7 @@ const Bot = preload("res://core/bot.gd")
 const Economy = preload("res://core/economy.gd")
 const Board3D = preload("res://game3d/board3d.gd")
 const Dice3D = preload("res://game3d/dice3d.gd")
+const Themes = preload("res://game3d/themes.gd")
 const Hud = preload("res://ui/hud.gd")
 const Lobby = preload("res://ui/lobby.gd")
 const Modals = preload("res://ui/modals.gd")
@@ -61,6 +62,9 @@ var _in_match := false
 var _greeted := false
 var _room := -1
 var _tier := 1
+var _lobby_tier := 1  # the table showing in the lobby carousel
+var _practice_tier := 1  # practice matches use the city of the table picked in the lobby
+var _theme_override := ""  # --theme ID: every board uses this city (art review)
 var _updates: Array = []
 var _playing := false
 var _pending := {}
@@ -90,6 +94,8 @@ func _ready() -> void:
 				queue_tier = int(args[i + 1])
 			"--snap":
 				snap_path = args[i + 1]
+			"--theme":
+				_theme_override = args[i + 1]
 			"--snap-after":
 				snap_after = float(args[i + 1])
 	_build_world()
@@ -108,6 +114,7 @@ func _ready() -> void:
 	lobby.setup(modals)
 	lobby.play.connect(_on_play)
 	lobby.practice.connect(_on_practice)
+	lobby.tier_changed.connect(_on_lobby_tier)
 	modals.results_closed.connect(_on_results_closed)
 	modals.matchmaking_cancelled.connect(func() -> void: pass)
 	Net.connected.connect(_on_net_ready)
@@ -381,7 +388,7 @@ func _demo_board() -> void:
 		demo.submit(Bot.decide(demo, Bot.PERSONAS.values()[demo.pending.player % 3], rng))
 	demo.events.clear()
 	g = demo
-	board.setup(g, PLAYER_COLORS)
+	_setup_board(_lobby_tier)
 	board.set_tags_visible(false)  # the lobby shows the island, not prices
 
 
@@ -390,7 +397,24 @@ func _on_play(tier: int) -> void:
 	Net.send({"t": "queue", "tier": tier})
 
 
+## Builds the board in a table's city and matches the sky and sunlight to it.
+func _setup_board(tier: int) -> void:
+	var theme := Themes.get_theme(_theme_override) if _theme_override != "" else Themes.for_tier(tier)
+	board.setup(g, PLAYER_COLORS, theme.id)
+	_sky.modulate = theme.sky
+	_key.light_color = theme.light
+
+
+## Swiping the lobby carousel shows that table's city behind it (once the swipe settles).
+func _on_lobby_tier(t: int) -> void:
+	_lobby_tier = t
+	await get_tree().create_timer(0.3).timeout
+	if _lobby_tier == t and not _in_match and lobby.visible:
+		_demo_board()
+
+
 func _on_practice() -> void:
+	_practice_tier = _lobby_tier
 	modals.matchmaking(0, Net.profile)
 	Net.send({"t": "practice"})
 
@@ -431,7 +455,7 @@ func _start_match(msg: Dictionary) -> void:
 	if g == null:
 		push_error("bad snapshot")
 		return
-	board.setup(g, PLAYER_COLORS)
+	_setup_board(_tier if _tier > 0 else _practice_tier)
 	board.set_life_visible(false)
 	_apply_cosmetics()
 	hud.setup(g, PLAYER_COLORS, me, meta)

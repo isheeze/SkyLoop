@@ -385,13 +385,51 @@ def pawn():
     C.export(os.path.join(OUT, "pawn.glb"))
 
 
-# ---------------------------------------------------------------- park
+# ---------------------------------------------------------------- city looks
+
+## Each table's island and park. Keys: top/lip (island top), lawn (the park inside the ring),
+## cliff (six bands, top to bottom), ledge, rocks, path, plaza, water, trees (park kinds), edge
+## (rim decoration kind), flowers, glow (crystal accents).
+THEMES = {
+    "town": dict(top="#6cc04a", lip="#4f9c3a", lawn="#6cc04a",
+                 cliff=["#b07a4f", "#a06d47", "#8f6141", "#80573b", "#714c34", "#664430"], ledge="#5e3e2a",
+                 rocks=["#a07a62", "#8d6a55", "#b8957b"], path="#f2e2c4", plaza=WALL, water="#7fd3ff",
+                 trees=["round", "pine", "blossom"], edge="bush", flowers=["#ff8fab", "#ffd166", "#ffffff"]),
+    "forest": dict(top="#4fa845", lip="#3a7f33", lawn="#56b04a",
+                   cliff=["#7a5a3c", "#6d5036", "#604630", "#543d2a", "#4a3525", "#402e20"], ledge="#3b2a1d",
+                   rocks=["#7f8f6a", "#6a7a58", "#8d9b78"], path="#d9c39a", plaza="#e6dcc0", water="#5fc4c9",
+                   trees=["pine", "oak", "pine", "mushroom"], edge="pine", tree_scale=1.3, flowers=["#ffffff", "#ffd166", "#ff8fab"]),
+    "desert": dict(top="#f2d38c", lip="#d9a85f", lawn="#f5dc9e",
+                   cliff=["#e09a5a", "#d48a4c", "#c77b42", "#b86d3a", "#a96133", "#99562d"], ledge="#8c4c28",
+                   rocks=["#e8b07a", "#d29a68", "#f0c38f"], path="#fff0cf", plaza="#f6dcae", water="#4fd8e8",
+                   trees=["palm", "cactus", "palm"], edge="cactus", flowers=["#ff7a6b", "#ffd23f", "#ffffff"]),
+    "city": dict(top="#ead9bd", lip="#cdb894", lawn="#78cc5c",
+                 cliff=["#c98a62", "#b97b56", "#a96e4c", "#996243", "#8a573b", "#7c4d34"], ledge="#6a4029",
+                 rocks=["#d6a283", "#c18e70", "#e2b597"], path="#d9785a", plaza="#fff6e8", water="#6fd0ff",
+                 trees=["round", "topiary", "blossom"], edge="planter", flowers=["#ff5d73", "#ffffff", "#ffd166"]),
+    "metro": dict(top="#d9dde6", lip="#b9c0cc", lawn="#79c95e",
+                  cliff=["#6f7790", "#646c86", "#5a617b", "#505771", "#464d66", "#3d435b"], ledge="#33384d",
+                  rocks=["#858da3", "#737b92", "#969db0"], path="#f4f5f8", plaza="#ffffff", water="#7fdcff",
+                  trees=["topiary", "round", "topiary"], edge="planter", flowers=["#ff5d73", "#ffffff", "#c9a7ff"]),
+    "future": dict(top="#eef0ff", lip="#c7c9f5", lawn="#a8f0dc",
+                   cliff=["#8a6de0", "#7c5fd4", "#6e52c6", "#6146b8", "#553caa", "#4a339c"], ledge="#3f2b85",
+                   rocks=["#b9a6ff", "#9f8cf5", "#d0c4ff"], path="#ffffff", plaza="#f4f6ff", water="#5ff5ff",
+                   trees=["crystal", "orb", "crystal"], edge="crystal", flowers=["#5ff5ff", "#ff7ad9", "#ffffff"],
+                   glow=True),
+}
+
+
+# ---------------------------------------------------------------- park pieces
 
 def tree_round(x, y, s, leaf=LEAF, light=LEAF2):
     C.cyl(0.035 * s, 0.05 * s, 0.2 * s, (x, y, 0.1 * s), C.M(TRUNK), verts=10)
     C.ball(0.18 * s, (x, y, 0.36 * s), C.M(leaf, 0.9), seg=16)
     C.ball(0.13 * s, (x + 0.11 * s, y - 0.05 * s, 0.28 * s), C.M(light, 0.9), seg=14)
     C.ball(0.12 * s, (x - 0.1 * s, y + 0.06 * s, 0.3 * s), C.M(leaf, 0.9), seg=14)
+
+
+def tree_oak(x, y, s):
+    tree_round(x, y, s * 1.1, leaf="#3e8f3a", light="#58a847")
 
 
 def tree_pine(x, y, s):
@@ -408,6 +446,60 @@ def tree_blossom(x, y, s):
     C.ball(0.1 * s, (x - 0.08 * s, y + 0.05 * s, 0.27 * s), C.M("#ff92b6", 0.9), seg=14)
 
 
+def tree_mushroom(x, y, s):
+    C.cyl(0.035 * s, 0.045 * s, 0.16 * s, (x, y, 0.08 * s), C.M("#fff4e2", 0.9), verts=12)
+    C.ball(0.14 * s, (x, y, 0.18 * s), C.M("#e6474f", 0.7), scale=(1, 1, 0.6), seg=16)
+    for k in range(5):
+        a = k * 1.3
+        C.ball(0.02 * s, (x + math.cos(a) * 0.08 * s, y + math.sin(a) * 0.08 * s, 0.23 * s), C.M("#ffffff", 0.8), seg=8)
+
+
+def tree_palm(x, y, s):
+    for k in range(5):
+        C.cyl(0.035 * s, 0.035 * s, 0.09 * s, (x + k * 0.012 * s, y, 0.045 * s + k * 0.085 * s), C.M("#b9834e", 0.9),
+              verts=10)
+    top = (x + 0.06 * s, y, 0.46 * s)
+    leaf = C.M("#4fb35e", 0.9)
+    for k in range(6):
+        a = k * math.tau / 6
+        C.rbox((0.26 * s, 0.07 * s, 0.02 * s), (top[0] + math.cos(a) * 0.12 * s, top[1] + math.sin(a) * 0.12 * s,
+                                                 top[2] - 0.03 * s), leaf, r=0.01, rot=(0, 0.35, a))
+    C.ball(0.035 * s, (top[0], top[1], top[2] - 0.02 * s), C.M("#8a5a3c", 0.9), seg=10)
+
+
+def tree_cactus(x, y, s):
+    g = C.M("#5fae54", 0.85)
+    C.cyl(0.06 * s, 0.06 * s, 0.34 * s, (x, y, 0.17 * s), g, verts=14, bevel=0.03)
+    C.ball(0.06 * s, (x, y, 0.34 * s), g, seg=12)
+    for side, h in ((-1, 0.16), (1, 0.22)):
+        C.cyl(0.035 * s, 0.035 * s, 0.1 * s, (x + side * 0.08 * s, y, h * s), g, verts=12, rot=(0, math.pi / 2, 0))
+        C.cyl(0.035 * s, 0.035 * s, 0.12 * s, (x + side * 0.13 * s, y, (h + 0.06) * s), g, verts=12)
+        C.ball(0.035 * s, (x + side * 0.13 * s, y, (h + 0.12) * s), g, seg=10)
+    C.ball(0.025 * s, (x, y, 0.4 * s), C.M("#ff7ad9", 0.7), seg=10)
+
+
+def tree_topiary(x, y, s):
+    C.cyl(0.08 * s, 0.065 * s, 0.1 * s, (x, y, 0.05 * s), C.M("#e9ecf2", 0.8), verts=16)
+    C.cyl(0.015 * s, 0.015 * s, 0.14 * s, (x, y, 0.17 * s), C.M(TRUNK), verts=8)
+    C.ball(0.13 * s, (x, y, 0.32 * s), C.M("#4fb35e", 0.9), seg=16)
+
+
+def tree_crystal(x, y, s):
+    for k, (dx, dy, h, col) in enumerate(((0, 0, 0.42, "#7ff6ff"), (0.08, 0.03, 0.28, "#ff9ce6"),
+                                          (-0.07, 0.05, 0.24, "#b9a6ff"))):
+        C.cyl(0.06 * s, 0.0, h * s, (x + dx * s, y + dy * s, h * s / 2), C.M(col, 0.2, emit=1.2), verts=6, bevel=0.0)
+
+
+def tree_orb(x, y, s):
+    C.cyl(0.018 * s, 0.025 * s, 0.26 * s, (x, y, 0.13 * s), C.M("#c7c9f5", 0.4), verts=10)
+    C.ball(0.13 * s, (x, y, 0.36 * s), C.M("#8ff0ff", 0.2, emit=1.0), seg=18)
+    C.torus(0.17 * s, 0.012 * s, (x, y, 0.36 * s), C.M("#ff9ce6", 0.3, emit=1.5), rot=(0.4, 0, 0))
+
+
+TREES = {"round": tree_round, "oak": tree_oak, "pine": tree_pine, "blossom": tree_blossom, "mushroom": tree_mushroom,
+         "palm": tree_palm, "cactus": tree_cactus, "topiary": tree_topiary, "crystal": tree_crystal, "orb": tree_orb}
+
+
 def bench(x, y, a):
     wood, metal = C.M(WOOD, 0.85), C.M("#5b6178", 0.7)
     c, s = math.cos(a), math.sin(a)
@@ -417,33 +509,36 @@ def bench(x, y, a):
         C.rbox((0.02, 0.08, 0.07), (x + c * 0.11 * k, y + s * 0.11 * k, 0.035), metal, r=0.005, rot=(0, 0, a))
 
 
-def flower_bed(x, y, w, d, flowers):
-    C.rbox((w + 0.06, d + 0.06, 0.06), (x, y, 0.03), C.M("#e9d6b4", 0.9), r=0.025)
+def flower_bed(x, y, w, d, flowers, rim="#e9d6b4", leaf=LEAF):
+    C.rbox((w + 0.06, d + 0.06, 0.06), (x, y, 0.03), C.M(rim, 0.9), r=0.025)
     C.rbox((w, d, 0.05), (x, y, 0.04), C.M("#7b5b45", 0.95), r=0.02)
     nx, ny = max(2, int(w / 0.09)), max(2, int(d / 0.09))
     for i in range(nx):
         for j in range(ny):
             px = x - w / 2 + w * (i + 0.5) / nx
             py = y - d / 2 + d * (j + 0.5) / ny
-            C.ball(0.035, (px, py, 0.08), C.M(LEAF, 0.9), seg=8)
+            C.ball(0.035, (px, py, 0.08), C.M(leaf, 0.9), seg=8)
             C.ball(0.022, (px + 0.01, py - 0.01, 0.11), C.M(flowers[(i + j) % len(flowers)], 0.8), seg=8)
 
 
-def centre():
-    """The park: a fountain plaza with the golden dice, four stone paths out to the corners,
-    flower beds, benches, lamps and mixed trees. Kept low near the tiles."""
+def centre(theme):
+    """The park: a lawn inside the ring, a fountain plaza with the golden dice, four paths out to
+    the corners, flower beds, benches, lamps and the city's trees. Kept low near the tiles."""
+    P = THEMES[theme]
     C.reset()
-    stone, stone2 = C.M("#f2e2c4", 0.9), C.M("#e2cda6", 0.9)
+    if P["lawn"] != P["top"]:
+        C.rbox((5.9, 5.9, 0.03), (0, 0, 0.012), C.M(P["lawn"], 0.95), r=0.4, seg=3)
+    stone, stone2 = C.M(P["path"], 0.9), C.M(P["plaza"], 0.9)
     C.cyl(1.3, 1.34, 0.05, (0, 0, 0.025), stone, verts=56)
     C.torus(1.3, 0.025, (0, 0, 0.05), stone2)
     for k in range(4):
         a = math.pi / 4 + k * math.pi / 2
         c, s = math.cos(a), math.sin(a)
         C.rbox((0.42, 2.0, 0.04), (c * 2.25, s * 2.25, 0.02), stone, r=0.02, rot=(0, 0, a - math.pi / 2))
-    C.cyl(0.95, 0.95, 0.14, (0, 0, 0.12), C.M(WALL, 0.85), verts=56)
+    C.cyl(0.95, 0.95, 0.14, (0, 0, 0.12), C.M(P["plaza"], 0.85), verts=56)
     C.torus(0.95, 0.03, (0, 0, 0.19), gold())
-    C.cyl(0.87, 0.87, 0.06, (0, 0, 0.17), C.M("#5fd0ff", 0.15), verts=56, bevel=0.0)
-    C.cyl(0.26, 0.3, 0.42, (0, 0, 0.35), C.M(WALL, 0.85), verts=28)
+    C.cyl(0.87, 0.87, 0.06, (0, 0, 0.17), C.named("Water", P["water"], 0.15), verts=56, bevel=0.0)
+    C.cyl(0.26, 0.3, 0.42, (0, 0, 0.35), C.M(P["plaza"], 0.85), verts=28)
     C.cyl(0.36, 0.34, 0.06, (0, 0, 0.58), gold(), verts=32)
     dice = gold()
     pip = C.M("#ffffff", 0.4)
@@ -451,42 +546,52 @@ def centre():
     C.rbox((0.34, 0.34, 0.34), (0.22, 0.1, 0.78), dice, r=0.07, seg=4, rot=(0.0, 0.0, -0.3))
     for (dx, dy) in ((0, 0), (0.1, 0.1), (-0.1, -0.1)):
         C.ball(0.03, (-0.12 + dx * 0.9, dy * 0.9, 1.025), pip, seg=10)
-    for k in range(10):
-        a = k * math.tau / 10 + 0.3
-        C.ball(0.03, (math.cos(a) * 0.55, math.sin(a) * 0.55, 0.22), C.M("#bfefff", 0.2, emit=0.8), seg=8)
-    # Flower beds on the axes, benches beside them, lamps by the paths.
+    leaf = "#5fae54" if theme != "future" else "#7fe8c8"
     for k in range(4):
         a = k * math.pi / 2
         c, s = math.cos(a), math.sin(a)
-        if k % 2 == 0:
-            flower_bed(c * 1.75, s * 1.75, 0.36, 0.8, ["#ff8fab", "#ffd166", "#ffffff"])
-        else:
-            flower_bed(c * 1.75, s * 1.75, 0.8, 0.36, ["#c9a7ff", "#ff9f6e", "#ffffff"])
+        w, d = (0.36, 0.8) if k % 2 == 0 else (0.8, 0.36)
+        flower_bed(c * 1.75, s * 1.75, w, d, P["flowers"], rim=P["path"], leaf=leaf)
         bench(c * 1.4 - s * 0.55, s * 1.4 + c * 0.55, a + math.pi / 2)
-    post, light = C.M("#4a4f6a", 0.6), C.M("#fff1b8", 0.3, emit=3.0)
+    glow = P.get("glow", False)
+    post = C.M("#c7c9f5" if glow else "#4a4f6a", 0.6)
+    light = C.M("#7ff6ff" if glow else "#fff1b8", 0.3, emit=3.0)
     for k in range(4):
         a = math.pi / 4 + k * math.pi / 2
         for r in (1.6, 2.6):
             for side in (-1, 1):
-                px = math.cos(a) * r - math.sin(a) * 0.3 * side
-                py = math.sin(a) * r + math.cos(a) * 0.3 * side
                 if r > 2 and side > 0:
                     continue
+                px = math.cos(a) * r - math.sin(a) * 0.3 * side
+                py = math.sin(a) * r + math.cos(a) * 0.3 * side
                 C.cyl(0.012, 0.016, 0.3, (px, py, 0.15), post, verts=8)
                 C.ball(0.035, (px, py, 0.32), light, seg=12)
-    # Trees in the four wedges between paths: a mix, tallest near the plaza.
-    kinds = [tree_round, tree_pine, tree_blossom]
+    kinds = [TREES[t] for t in P["trees"]]
     k = 0
     for q in range(4):
         base = q * math.pi / 2
         for (da, r, sc) in ((0.0, 1.55, 1.35), (0.32, 2.15, 1.2), (-0.32, 2.15, 1.1), (0.15, 2.65, 0.9),
                             (-0.18, 2.6, 0.85)):
             a = base + da
-            kinds[k % 3](math.cos(a) * r, math.sin(a) * r, sc)
+            kinds[k % len(kinds)](math.cos(a) * r, math.sin(a) * r, sc * P.get("tree_scale", 1.0))
             k += 1
-    for (x, y) in ((1.0, 2.55), (-2.55, 1.0), (2.5, -1.1), (-1.1, -2.5)):
-        C.bush(x, y, 1.6, C.M(LEAF, 0.9), flowers=C.M("#ffd166", 0.8))
-    C.export(os.path.join(OUT, "centre.glb"))
+    os.makedirs(os.path.join(OUT, theme), exist_ok=True)
+    C.export(os.path.join(OUT, theme, "centre.glb"))
+
+
+def _edge_item(kind, x, y, k, P):
+    if kind == "bush":
+        C.bush(x, y, 1.3, C.M(LEAF, 0.9), flowers=C.M(P["flowers"][k % 3], 0.8))
+    elif kind == "pine":
+        tree_pine(x, y, 0.55) if k % 2 == 0 else tree_mushroom(x, y, 0.45)
+    elif kind == "cactus":
+        tree_cactus(x, y, 0.45) if k % 2 == 0 else C.ball(0.06, (x, y, 0.03), C.M(P["rocks"][k % 3], 0.95),
+                                                         scale=(1.3, 1.0, 0.7), seg=10)
+    elif kind == "planter":
+        C.rbox((0.22, 0.1, 0.08), (x, y, 0.04), C.M("#e9ecf2", 0.8), r=0.02)
+        C.bush(x, y, 1.0, C.M(LEAF, 0.9), z=0.07, flowers=C.M(P["flowers"][k % 3], 0.8))
+    elif kind == "crystal":
+        tree_crystal(x, y, 0.45)
 
 
 # ---------------------------------------------------------------- island
@@ -556,32 +661,33 @@ def _ribbon(x, y, ox, oy, along_x, width, mat, shift=0.0):
     return C._add(ob, mat, 0, weighted=False)
 
 
-def island():
-    """The floating island: a thick grass top with a soft lip, layered cliffs tapering to a point,
-    boulders, and two waterfalls on the faces the camera sees."""
+
+
+
+def island(theme):
+    """The floating island: a thick top with a soft lip, layered cliffs tapering to a point,
+    boulders, and two waterfalls (material Water, animated in game) on the faces the camera sees."""
+    P = THEMES[theme]
     C.reset()
     n = 96
-    grass, lip = C.M("#6cc04a", 0.95), C.M("#4f9c3a", 0.95)
-    C_top = _superellipse(n, 4.72, 6.0)
-    _slab("grass", C_top, _superellipse(n, 4.76, 6.0), 0.0, -0.16, grass)
+    top, lip = C.M(P["top"], 0.95), C.M(P["lip"], 0.95)
+    _slab("top", _superellipse(n, 4.72, 6.0), _superellipse(n, 4.76, 6.0), 0.0, -0.16, top)
     _slab("lip", _superellipse(n, 4.78, 6.0), _superellipse(n, 4.66, 6.0, 0.012, 3), -0.16, -0.3, lip, cap=False)
-    # (half-size at the bottom of the band, band top, band bottom, colour, jitter): steep walls
-    # first (seen from the camera), then the taper underneath.
-    layers = [(4.62, -0.3, -0.85, "#b07a4f", 0.006), (4.5, -0.85, -1.45, "#a06d47", 0.012),
-              (4.15, -1.45, -2.05, "#8f6141", 0.025), (3.4, -2.05, -2.6, "#80573b", 0.04),
-              (2.1, -2.6, -3.1, "#714c34", 0.06), (0.3, -3.1, -3.55, "#664430", 0.08)]
+    bands = [(4.62, -0.3, -0.85, 0.006), (4.5, -0.85, -1.45, 0.012), (4.15, -1.45, -2.05, 0.025),
+             (3.4, -2.05, -2.6, 0.04), (2.1, -2.6, -3.1, 0.06), (0.3, -3.1, -3.55, 0.08)]
     prev = _superellipse(n, 4.66, 6.0, 0.012, 3)
-    for k, (half, zt, zb, col, jit) in enumerate(layers):
-        bottom = _superellipse(n, half, max(6.0 - k * 0.8, 2.2), jit, k + 7)
-        _slab("cliff%d" % k, prev, bottom, zt, zb, C.M(col, 0.95), cap=False)
+    glow = P.get("glow", False)
+    for k, (half, zt, zb, jit) in enumerate(bands):
+        power = max(6.0 - k * 0.8, 2.2)
+        bottom = _superellipse(n, half, power, jit, k + 7)
+        _slab("cliff%d" % k, prev, bottom, zt, zb, C.M(P["cliff"][k], 0.95), cap=False)
         prev = bottom
-        # A darker ledge line between bands reads as rock strata.
-        _slab("ledge%d" % k, _superellipse(n, half + 0.04, max(6.0 - k * 0.8, 2.2), jit, k + 7),
-              _superellipse(n, half - 0.02, max(6.0 - k * 0.8, 2.2), jit, k + 7), zb + 0.03, zb - 0.03,
-              C.M("#5e3e2a", 0.95), cap=False)
+        ledge = C.M("#7ff6ff", 0.3, emit=1.5) if glow and k % 2 == 0 else C.M(P["ledge"], 0.95)
+        _slab("ledge%d" % k, _superellipse(n, half + 0.04, power, jit, k + 7),
+              _superellipse(n, half - 0.02, power, jit, k + 7), zb + 0.03, zb - 0.03, ledge, cap=False)
     import random
     rnd = random.Random(5)
-    rock = [C.M(h, 0.95) for h in ("#a07a62", "#8d6a55", "#b8957b")]
+    rock = [C.M(h, 0.6 if glow else 0.95, emit=0.6 if glow else 0.0) for h in P["rocks"]]
     for k in range(26):
         a = rnd.uniform(0, math.tau)
         z = rnd.uniform(-2.3, -0.5)
@@ -589,14 +695,10 @@ def island():
         c, s = math.cos(a), math.sin(a)
         r = (abs(c) ** 4 + abs(s) ** 4) ** (-0.25) * half
         C.ball(rnd.uniform(0.13, 0.24), (c * r * 0.985, s * r * 0.985, z), rock[k % 3], scale=(1.2, 1.0, 0.8), seg=10)
-    # Waterfalls on the two faces the camera sees: a smooth ribbon that leaves the grass lip,
-    # curves out and falls, with foam where it leaves and a cloud of spray at the bottom.
-    water, light, foam = C.M("#7fd3ff", 0.15, emit=0.2), C.M("#d4f3ff", 0.2, emit=0.4), C.M("#ffffff", 0.6)
+    water, foam = C.named("Water", P["water"], 0.15), C.M("#ffffff", 0.6)
     for (x, y, along_x) in ((1.6, -4.7, True), (4.7, -1.4, False)):
         ox, oy = (0.0, -1.0) if along_x else (1.0, 0.0)
-        _ribbon(x, y, ox, oy, along_x, 0.46, water)
-        _ribbon(x + (0.0 if along_x else 0.03), y + (-0.03 if along_x else 0.0), ox, oy, along_x, 0.14, light,
-                shift=0.08)
+        _ribbon(x, y, ox, oy, along_x, 0.48, water)
         for k in range(5):
             d = 0.11 * (k - 2)
             C.ball(0.075 + 0.02 * (k % 2), (x + ox * 0.12 + (d if along_x else 0), y + oy * 0.12 + (0 if along_x else d),
@@ -605,17 +707,24 @@ def island():
             d = 0.17 * (k - 2)
             C.ball(0.17 + 0.04 * (k % 2), (x + ox * 0.5 + (d if along_x else 0), y + oy * 0.5 + (0 if along_x else d),
                                            -2.9 + 0.05 * (k % 2)), foam, seg=12)
-    # Grass edge: small bushes and flowers around the rim.
     for k in range(44):
+        if k % 3:
+            continue
         a = (k + 0.5) * math.tau / 44
         c, s = math.cos(a), math.sin(a)
         r = (abs(c) ** 6 + abs(s) ** 6) ** (-1 / 6) * 4.45
-        if k % 3 == 0:
-            C.bush(c * r, s * r, 1.3, C.M(LEAF, 0.9), flowers=C.M(["#ff8fab", "#ffd166", "#ffffff"][k % 3], 0.8))
-    C.export(os.path.join(OUT, "island.glb"))
+        _edge_item(P["edge"], c * r, s * r, k // 3, P)
+    os.makedirs(os.path.join(OUT, theme), exist_ok=True)
+    C.export(os.path.join(OUT, theme, "island.glb"))
 
 
-for f in (tile, corner_tile, owned_plot, cottage, house, shop, tower, landmark, for_sale, payday, jackpot, audit, vault, sp_metro,
-          sp_windfall, sp_permit, pawn, centre, island):
-    f()
-    print("built", f.__name__)
+only = [a.split("=", 1)[1] for a in sys.argv if a.startswith("--theme=")]
+if not only:
+    for f in (tile, corner_tile, owned_plot, cottage, house, shop, tower, landmark, for_sale, payday, jackpot, audit,
+              vault, sp_metro, sp_windfall, sp_permit, pawn):
+        f()
+        print("built", f.__name__)
+for theme in (only or list(THEMES)):
+    centre(theme)
+    island(theme)
+    print("built", theme)

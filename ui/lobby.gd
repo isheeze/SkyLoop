@@ -265,7 +265,7 @@ func _tier_card(t: int) -> Control:
 	banner.add_theme_stylebox_override("panel", bs)
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(banner)
-	var art_path := "res://art/ui/table_banner.jpg"
+	var art_path := "res://art/ui/banners/%s.jpg" % theme.id
 	if ResourceLoader.exists(art_path):
 		var art := TextureRect.new()
 		art.texture = load(art_path)

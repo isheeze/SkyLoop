@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://caubnqm2adrbx"
-path="res://.godot/imported/centre.glb-f2dc30ea557baece7b66d175a3d5f006.scn"
+uid="uid://bi17p5lhuumqs"
+path="res://.godot/imported/centre.glb-6c028cff13cca160daadfcd0bd265471.scn"
 
 [deps]
 
-source_file="res://art/toy/centre.glb"
-dest_files=["res://.godot/imported/centre.glb-f2dc30ea557baece7b66d175a3d5f006.scn"]
+source_file="res://art/toy/desert/centre.glb"
+dest_files=["res://.godot/imported/centre.glb-6c028cff13cca160daadfcd0bd265471.scn"]
 
 [params]
 

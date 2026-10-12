@@ -1,12 +1,13 @@
 extends Node
-## Renders the lobby's table-card banner (art/ui/table_banner.jpg): a mid-game board seen like
-## the game camera, offscreen at full resolution. Needs a window:
+## Renders each city's lobby table-card banner (art/ui/banners/<theme>.jpg): a mid-game board
+## seen like the game camera, offscreen at full resolution. Needs a window:
 ##   godot --path . res://tools/banner.tscn
 
 const Board3D = preload("res://game3d/board3d.gd")
 const Board = preload("res://core/board.gd")
 const Game = preload("res://core/game.gd")
 const Bot = preload("res://core/bot.gd")
+const Themes = preload("res://game3d/themes.gd")
 const COLORS := [Color("ffc23d"), Color("ff5d73"), Color("3ddc97"), Color("5cc8ff")]
 
 
@@ -45,11 +46,6 @@ func _ready() -> void:
 	rng.seed = 7
 	while not demo.over and demo.round_no < 7:
 		demo.submit(Bot.decide(demo, Bot.PERSONAS.values()[demo.pending.player % 3], rng))
-	var board := Board3D.new()
-	vp.add_child(board)
-	board.setup(demo, COLORS)
-	board.set_tags_visible(false)
-	board.set_life_visible(false)
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.size = 8.4
@@ -57,10 +53,19 @@ func _ready() -> void:
 	cam.position = Vector3(0.0, 0.3, 0.0) + cam.basis * Vector3(0, 0, 30)
 	cam.far = 80.0
 	vp.add_child(cam)
-	for k in 8:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://art/ui/banners"))
+	for id: String in Themes.THEMES:
+		var board := Board3D.new()
+		vp.add_child(board)
+		board.setup(demo, COLORS, id)
+		board.set_tags_visible(false)
+		board.set_life_visible(false)
+		key.light_color = Themes.THEMES[id].light
+		for k in 8:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		vp.get_texture().get_image().save_jpg(ProjectSettings.globalize_path("res://art/ui/banners/%s.jpg" % id), 0.88)
+		print("banner saved ", id)
+		board.queue_free()
 		await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	var img := vp.get_texture().get_image()
-	img.save_jpg(ProjectSettings.globalize_path("res://art/ui/table_banner.jpg"), 0.88)
-	print("banner saved")
 	get_tree().quit()

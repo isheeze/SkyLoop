@@ -294,7 +294,7 @@ def export(path):
 
 ## Materials the game recolours at runtime stay separate (named slots): Owner (roof, flag,
 ## pawn), Stripe (district colour on a tile), Wall (a building's wall tint, varied per tile).
-KEEP = ("Owner", "Stripe", "Wall")
+KEEP = ("Owner", "Stripe", "Wall", "Water")
 
 
 def named(name, hexcol, rough=0.6):
